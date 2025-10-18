@@ -14,7 +14,7 @@ import re
 import uuid
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -101,8 +101,12 @@ def run_eq_bench_creative(
         "judge_models": judge_models,
         "iterations": iterations,
         "creative_prompts_file": creative_prompts_file,
-        "vllm_params_file": vllm_params_file
+        "creative_criteria_file": creative_criteria_file,
+        "negative_criteria_file": negative_criteria_file,
+        "judge_prompt_file": judge_prompt_file,
+        "vllm_params_file": vllm_params_file,
     }
+
     db.get_or_create_run(run_key, test_model, run_config)
 
     # Load criteria and prompts from files (original logic)
@@ -191,6 +195,11 @@ def run_eq_bench_creative(
     if run_elo:
         logging.info("Starting ELO analysis...")
         try:
+            # Load pairwise prompt from file (required for ELO judging)
+            pairwise_prompt_file = "data/pairwise_prompt.txt"
+            with open(pairwise_prompt_file, 'r', encoding='utf-8') as f:
+                pairwise_prompt_template = f.read()
+            
             # ELO function now reads from and writes to the database
             final_elo_snapshot, error_msg = run_elo_analysis_creative(
                 run_key=run_key,
@@ -199,6 +208,7 @@ def run_eq_bench_creative(
                 writing_prompts=creative_prompts,
                 concurrency=num_threads
             )
+
             if error_msg:
                 logging.error(f"ELO analysis finished with an error: {error_msg}")
 

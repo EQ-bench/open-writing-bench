@@ -13,7 +13,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone # For timestamps
 from collections import defaultdict
 
-from utils.file_io import load_json_file, save_json_file # Assuming CW has this
+from utils.db_connector import db
+from utils.db_schema import Task, JudgeResult, EloComparison, EloRating
+from utils.api import get_client
 
 # Import from new CW-specific ELO modules
 from .elo_config_cw import (
@@ -94,7 +96,7 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     pairwise_prompt_template: str,
     writing_prompts: Dict[str, Any], # {item_id: {"writing_prompt": "..."}}
     judge_model: str,
-    api_clients: Dict[str, Any], # {"judge": client_object}
+    judge_client: Any, # LLMClient object
     # item_order_idx=None # Original CW had this, seems for ordering within a batch
 ):
     """ Core judging function from original CW elo.py. """
@@ -113,10 +115,9 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     final_prompt = final_prompt.replace("{model_b_analysis}", textB)
     response_text = ""
     try:
-        # Assuming api_clients["judge"] has a .generate method
-        response_text = api_clients["judge"].generate(
-            judge_model, final_prompt, temperature=0.0, max_tokens=16000, # Original CW params
-            # include_seed=True, min_p=None # Original CW params, adapt if your client differs
+        # Use the judge_client directly
+        response_text = judge_client.generate(
+            prompt=final_prompt, temperature=0.0, max_tokens=16000
         )
         start = response_text.find("{")
         end = response_text.rfind("}")
@@ -140,8 +141,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     matchups_to_judge: List[Tuple[str, str, str, float, str, str, float]],
     pairwise_prompt_template: str,
     writing_prompts: Dict[str, Any],
-    judge_model: str,
-    api_clients: Dict[str, Any],
+    judge_models: List[str],
     max_workers: int,
 ) -> List[Dict[str, Any]]:
     """
@@ -175,23 +175,27 @@ def _judge_item_iteration_pairs_in_parallel_cw(
                 "score_A": test_score, "score_B": neigh_score
             }
 
-            # Forward: (test_model_name vs neighbor_model_name)
-            fwd_future = executor.submit(
-                do_pairwise_judge_cw,
-                textA, textB, item_id,
-                pairwise_prompt_template, writing_prompts,
-                judge_model, api_clients
-            )
-            future_to_matchup_info[fwd_future] = {**match_info_base, "direction": "forward"}
+            # For each judge in the ensemble, judge both forward and reverse
+            for judge_idx, judge_name in enumerate(judge_models):
+                judge_client = get_client(judge_name, client_type='judge')
+                
+                # Forward: (test_model_name vs neighbor_model_name)
+                fwd_future = executor.submit(
+                    do_pairwise_judge_cw,
+                    textA, textB, item_id,
+                    pairwise_prompt_template, writing_prompts,
+                    judge_name, judge_client
+                )
+                future_to_matchup_info[fwd_future] = {**match_info_base, "direction": "forward", "judge_name": judge_name, "judge_idx": judge_idx}
 
-            # Reverse: (neighbor_model_name vs test_model_name)
-            rev_future = executor.submit(
-                do_pairwise_judge_cw,
-                textB, textA, item_id, # Swapped texts
-                pairwise_prompt_template, writing_prompts,
-                judge_model, api_clients
-            )
-            future_to_matchup_info[rev_future] = {**match_info_base, "direction": "reversed"}
+                # Reverse: (neighbor_model_name vs test_model_name)
+                rev_future = executor.submit(
+                    do_pairwise_judge_cw,
+                    textB, textA, item_id, # Swapped texts
+                    pairwise_prompt_template, writing_prompts,
+                    judge_name, judge_client
+                )
+                future_to_matchup_info[rev_future] = {**match_info_base, "direction": "reversed", "judge_name": judge_name, "judge_idx": judge_idx}
 
         for future in as_completed(future_to_matchup_info):
             match_info = future_to_matchup_info[future]
@@ -268,10 +272,13 @@ def _judge_item_iteration_pairs_in_parallel_cw(
                     comp_entry["plus_diff_blended"] = diff_blend
                     comp_entry["fraction_for_test"] = frac
                 
+                # Add judge info to the entry
+                comp_entry["judge_name"] = match_info["judge_name"]
+                comp_entry["judge_idx"] = match_info["judge_idx"]
                 comparisons_results.append(comp_entry)
 
             except Exception as e:
-                logging.error(f"[Judge-CW] Error processing result for item {item_id}, direction {match_info['direction']}: {e}", exc_info=True)
+                logging.error(f"[Judge-CW] Error processing result for item {item_id}, direction {match_info['direction']}, judge {match_info.get('judge_name', 'unknown')}: {e}", exc_info=True)
                 # Create an error entry
                 comparisons_results.append({
                     "item_id": item_id,
@@ -280,9 +287,96 @@ def _judge_item_iteration_pairs_in_parallel_cw(
                         "test_model_iteration_id": comp_test_iter_id, "neighbor_model_iteration_id": comp_neigh_iter_id,
                     },
                     "error": f"Failed to process judging result: {str(e)}",
-                    "outcome_for_test_model": 0.5, "plus_for_test": 0, "plus_for_other": 0, "fraction_for_test": 0.5
+                    "outcome_for_test_model": 0.5, "plus_for_test": 0, "plus_for_other": 0, "fraction_for_test": 0.5,
+                    "judge_name": match_info.get("judge_name", "unknown"),
+                    "judge_idx": match_info.get("judge_idx", 0)
                 })
-    return comparisons_results
+    
+    # Now aggregate results from the ensemble for each unique matchup
+    # Group by (item_id, test_iter_id, neigh_iter_id, direction)
+    matchup_groups = {}
+    for comp in comparisons_results:
+        pair = comp.get("pair", {})
+        key = (
+            comp.get("item_id"),
+            pair.get("test_model_iteration_id"),
+            pair.get("neighbor_model_iteration_id"),
+            comp.get("order", "unknown")  # Use order as proxy for direction
+        )
+        if key not in matchup_groups:
+            matchup_groups[key] = []
+        matchup_groups[key].append(comp)
+    
+    # Aggregate each group
+    aggregated_comparisons = []
+    for key, group in matchup_groups.items():
+        if not group:
+            continue
+        
+        # Take first entry as template
+        agg_comp = {
+            "item_id": group[0]["item_id"],
+            "pair": group[0]["pair"],
+            "item_length": group[0].get("item_length", {}),
+            "creative_writing_rubric_scores": group[0].get("creative_writing_rubric_scores", {}),
+            "order": group[0].get("order", ""),
+            "judge_responses": []  # Store all judge responses
+        }
+        
+        # Aggregate plus counts across all judges
+        total_plus_for_test = 0
+        total_plus_for_other = 0
+        has_error = False
+        
+        for comp in group:
+            agg_comp["judge_responses"].append({
+                "judge_name": comp.get("judge_name", "unknown"),
+                "judge_response": comp.get("judge_response", {}),
+                "plus_for_test": comp.get("plus_for_test", 0),
+                "plus_for_other": comp.get("plus_for_other", 0),
+                "outcome": comp.get("outcome_for_test_model", 0.5)
+            })
+            
+            if "error" in comp:
+                has_error = True
+            else:
+                total_plus_for_test += comp.get("plus_for_test", 0)
+                total_plus_for_other += comp.get("plus_for_other", 0)
+        
+        # Determine aggregated outcome based on total plus counts
+        if has_error or (total_plus_for_test == 0 and total_plus_for_other == 0):
+            agg_comp["outcome_for_test_model"] = 0.5
+            agg_comp["plus_for_test"] = 0
+            agg_comp["plus_for_other"] = 0
+            agg_comp["fraction_for_test"] = 0.5
+            if has_error:
+                agg_comp["error"] = "One or more judges failed"
+        else:
+            # Use aggregated plus counts to determine outcome
+            if total_plus_for_test > total_plus_for_other:
+                agg_comp["outcome_for_test_model"] = 1.0
+            elif total_plus_for_other > total_plus_for_test:
+                agg_comp["outcome_for_test_model"] = 0.0
+            else:
+                agg_comp["outcome_for_test_model"] = 0.5
+            
+            agg_comp["plus_for_test"] = total_plus_for_test
+            agg_comp["plus_for_other"] = total_plus_for_other
+            
+            # Compute fraction based on aggregated counts
+            frac, diff, diff_norm, diff_blend = compute_fraction_for_test_cw(
+                agg_comp["outcome_for_test_model"],
+                total_plus_for_test,
+                total_plus_for_other
+            )
+            agg_comp["plus_diff"] = diff
+            agg_comp["plus_diff_normalized"] = diff_norm
+            agg_comp["plus_diff_blended"] = diff_blend
+            agg_comp["fraction_for_test"] = frac
+        
+        aggregated_comparisons.append(agg_comp)
+    
+    return aggregated_comparisons
 
 
 def normalize_elo_scores_cw(raw_scores: Dict[str, float], anchor_models: Optional[Dict[str, float]] = None) -> Dict[str, float]:
@@ -369,57 +463,21 @@ def interpolate_elo_from_rubric_scores_cw(model_name: str, model_rubric_score: f
 # Main ELO Analysis Function for Creative Writing (Refactored)
 ##############################################
 def run_elo_analysis_creative(
-    run_key: str, # Identifies the current run data within creative_bench_runs_file
-    elo_results_file: str, # Path to the main ELO JSON file to load/save
-    test_model: str, # The primary model being evaluated in this ELO run
-    judge_model: str, # Name of the model used for pairwise judging
-    api_clients: Dict[str, Any], # API client for the judge_model
-    writing_prompts: Dict[str, Any], # Loaded writing prompts data
-    concurrency: int = 10, # For parallel processing of opponent matchups
-    pairwise_prompt_file: str = "data/pairwise_prompt.txt", # Path to the pairwise prompt template
-    negative_criteria: List[str] = [], # For rubric score processing
-    creative_bench_runs_file: str = "data/creative_bench_runs.json", # Path to run data
-    # max_items_per_model: int = 500, # This was CW's old global cap, now SAMPLING_SCHEDULE.samples controls it
-    # ladder_sample_size: int = 7, # This was for CW's old partial_match_test_vs, now SAMPLING_SCHEDULE
-    recompute_all_fractions: bool = False # If true, recompute fraction_for_test for all loaded comparisons
-) -> Tuple[Dict[str, Any], Optional[str]]: # Returns final solved ratings snapshot and error message
+    run_key: str,
+    test_model: str,
+    judge_models: List[str], # Now a list for ensemble
+    writing_prompts: Dict[str, Any],
+    concurrency: int
+) -> Tuple[Dict[str, Any], Optional[str]]:
     """
-    Refactored ELO analysis for Creative Writing using TrueSkill and EQB3-style sampling.
-    Maintains compatibility with CW's elo_results_file.json structure.
+    Refactored ELO analysis for Creative Writing using TrueSkill, EQB3-style sampling, and DB storage.
+    Implements ensemble judging where multiple judges score each pairwise comparison.
     """
-    logging.info(f"[ELO-CW] Starting ELO analysis for test_model: '{test_model}', run_key: '{run_key}'")
+    logging.info(f"[ELO-CW] Starting ELO analysis for test_model: '{test_model}', run_key: '{run_key}' with {len(judge_models)} judges")
     elo_error_message: Optional[str] = None
 
-    # 1. Load existing ELO data (the main elo_results_file.json)
-    if os.path.exists(elo_results_file):
-        existing_analyses = load_json_file(elo_results_file)
-        if not existing_analyses: # File exists but is empty or malformed
-            logging.warning(f"[ELO-CW] ELO results file {elo_results_file} is empty or malformed. Initializing fresh.")
-            existing_analyses = {}
-    else:
-        logging.info(f"[ELO-CW] ELO results file not found: {elo_results_file}. Initializing fresh.")
-        existing_analyses = {}
-    
-    # Ensure __metadata__ exists for potential future use, though CW doesn't use it like EQB3
-    existing_analyses.setdefault("__metadata__", {})
-
-
-    # 2. Load Creative Bench run data for the current run_key
-    if not os.path.exists(creative_bench_runs_file):
-        msg = f"Creative bench runs file not found: {creative_bench_runs_file}"
-        logging.error(f"[ELO-CW] {msg}")
-        return {}, msg
-    all_run_data = load_json_file(creative_bench_runs_file)
-    if not all_run_data or run_key not in all_run_data:
-        msg = f"Run key '{run_key}' not found in {creative_bench_runs_file}"
-        logging.error(f"[ELO-CW] {msg}")
-        return {}, msg
-    
-    current_run_tasks = all_run_data[run_key].get("creative_tasks", {})
-    if not current_run_tasks:
-        logging.info(f"[ELO-CW] No 'creative_tasks' found for run_key '{run_key}'. Processing existing data only.")
-
-    # 3. Load pairwise prompt template
+    # Load pairwise prompt template
+    pairwise_prompt_file = "data/pairwise_prompt.txt"
     try:
         pairwise_prompt_template = Path(pairwise_prompt_file).read_text(encoding="utf-8")
     except Exception as e:
@@ -427,117 +485,114 @@ def run_elo_analysis_creative(
         logging.error(f"[ELO-CW] {msg}", exc_info=True)
         return {}, msg
 
-    # 4. Aggregate data from current_run_tasks into existing_analyses (CW's original logic)
-    # This updates rubric scores, item texts, etc., for models in the current run.
-    temp_data_agg: Dict[str, Dict[str, Any]] = defaultdict(lambda: defaultdict(lambda: {"items": {}, "scores_accum": 0.0, "scores_count": 0, "item_scores": {}}))
-    for iter_str, prompt_map in current_run_tasks.items():
-        for item_id, task_info in prompt_map.items():
-            if should_ignore_prompt_cw(item_id):
-                continue
-            status = task_info.get("status")
-            if status not in ["completed", "judged"]: # Assuming these are the valid statuses
-                continue
-            
-            model_name_from_task = task_info.get("test_model") # Original CW used this key
-            if not model_name_from_task:
-                logging.warning(f"[ELO-CW] Task for item {item_id} in iter {iter_str} missing 'test_model'. Skipping.")
-                continue
+    # 1. Load existing ELO data from DB
+    existing_elo_ratings = db.get_elo_ratings()  # Dict[model_name, EloRating]
+    logging.info(f"[ELO-CW] Loaded {len(existing_elo_ratings)} existing ELO ratings from DB")
 
-            # Accumulate text & judge scores (rubric scores)
-            block_sum = 0.0
-            block_count = 0
-            combined_text = ""
-            results_by_modifier = task_info.get("results_by_modifier", {})
-            for _mod_seed, block_content in results_by_modifier.items():
-                txt = block_content.get("model_response", "").strip()
-                if txt: combined_text += txt + "\n" # Concatenate responses if multiple modifiers
-                
-                judge_scores = block_content.get("judge_scores", {}) # These are rubric scores
-                for metric, val in judge_scores.items():
-                    if isinstance(val, (int, float)):
-                        val_adjusted = invert_if_negative(metric, val, negative_criteria)
-                        block_sum += val_adjusted
-                        block_count += 1
-            
-            if combined_text: # Only add if there's text
-                temp_data_agg[model_name_from_task][iter_str]["items"][item_id] = combined_text.strip()
-            if block_count > 0:
-                temp_data_agg[model_name_from_task][iter_str]["scores_accum"] += block_sum
-                temp_data_agg[model_name_from_task][iter_str]["scores_count"] += block_count
-                avg_item_score = round(block_sum / block_count, 2)
-                temp_data_agg[model_name_from_task][iter_str]["item_scores"][item_id] = avg_item_score
-
-    # Integrate aggregated temp_data into existing_analyses
-    all_model_names_in_system: Set[str] = set(existing_analyses.keys()) - {"__metadata__"}
-
-    for model_name, iter_map_data in temp_data_agg.items():
-        all_model_names_in_system.add(model_name)
-        model_entry = existing_analyses.setdefault(model_name, {})
-        model_entry.setdefault("iterations", {})
+    # 2. Load all completed tasks from all runs in the DB to build model iteration data
+    # We need to query all tasks to get texts and rubric scores for ELO comparisons
+    with db.get_session() as session:
+        # Get all completed tasks across all runs
+        all_tasks = session.query(Task).filter(Task.status == 'completed').all()
+        logging.info(f"[ELO-CW] Found {len(all_tasks)} completed tasks across all runs")
         
-        total_rubric_score_accum = 0
-        total_rubric_score_count = 0
-        best_iter_score = -float('inf')
-        current_best_iter_id = model_entry.get("best_iteration")
-
-        for iter_id, iter_data in iter_map_data.items():
-            iter_rub_score = 0
-            if iter_data["scores_count"] > 0:
-                iter_rub_score = round(iter_data["scores_accum"] / iter_data["scores_count"], 2)
+        # Build model iteration structure: model -> iter -> items/scores
+        existing_analyses = {}
+        all_model_names_in_system = set()
+        
+        for task in all_tasks:
+            model_name = task.run.test_model  # Get test_model from the run
+            all_model_names_in_system.add(model_name)
             
-            model_entry["iterations"][iter_id] = {
-                "creative_writing_rubric_score_iter": iter_rub_score,
-                "items": iter_data["items"],
-                "item_scores": iter_data["item_scores"] # Per-item average rubric scores
+            if model_name not in existing_analyses:
+                existing_analyses[model_name] = {
+                    "iterations": {},
+                    "elo": existing_elo_ratings.get(model_name, EloRating(model_name=model_name, elo=DEFAULT_ELO)).elo,
+                    "elo_analysis": {"pairwise_comparisons": []}
+                }
+            
+            iter_id = str(task.iteration_index)
+            if iter_id not in existing_analyses[model_name]["iterations"]:
+                existing_analyses[model_name]["iterations"][iter_id] = {
+                    "items": {},
+                    "item_scores": {},
+                    "creative_writing_rubric_score_iter": 0.0
+                }
+            
+            # Store task data
+            if task.model_response:
+                existing_analyses[model_name]["iterations"][iter_id]["items"][task.prompt_id] = task.model_response
+            
+            # Get aggregated score
+            if task.aggregated_scores:
+                piece_score = task.aggregated_scores.get("piece_score_0_20", 0.0)
+                existing_analyses[model_name]["iterations"][iter_id]["item_scores"][task.prompt_id] = piece_score
+        
+        # Compute iteration-level and model-level rubric scores
+        for model_name, model_data in existing_analyses.items():
+            total_score_accum = 0.0
+            total_score_count = 0
+            best_iter_score = -float('inf')
+            best_iter_id = None
+            
+            for iter_id, iter_data in model_data["iterations"].items():
+                item_scores = list(iter_data["item_scores"].values())
+                if item_scores:
+                    iter_avg = sum(item_scores) / len(item_scores)
+                    iter_data["creative_writing_rubric_score_iter"] = round(iter_avg, 2)
+                    total_score_accum += sum(item_scores)
+                    total_score_count += len(item_scores)
+                    
+                    if iter_avg > best_iter_score:
+                        best_iter_score = iter_avg
+                        best_iter_id = iter_id
+            
+            if total_score_count > 0:
+                model_data["creative_writing_rubric_score_agg"] = round(total_score_accum / total_score_count, 2)
+            else:
+                model_data["creative_writing_rubric_score_agg"] = 0.0
+            
+            model_data["best_iteration"] = best_iter_id
+        
+        # 3. Load existing ELO comparisons from DB
+        all_comparisons_global = []
+        db_comparisons = session.query(EloComparison).all()
+        logging.info(f"[ELO-CW] Loaded {len(db_comparisons)} existing comparisons from DB")
+        
+        # Convert DB comparisons to the format expected by the ELO logic
+        for db_comp in db_comparisons:
+            comp_dict = {
+                "item_id": db_comp.item_id,
+                "pair": {
+                    "test_model": db_comp.model_a,
+                    "test_model_iteration_id": db_comp.model_a_iteration_id,
+                    "neighbor_model": db_comp.model_b,
+                    "neighbor_model_iteration_id": db_comp.model_b_iteration_id,
+                },
+                "plus_for_test": db_comp.aggregated_plus_for_a,
+                "plus_for_other": db_comp.aggregated_plus_for_b,
+                "fraction_for_test": db_comp.fraction_for_a,
+                "judge_responses": db_comp.aggregated_judge_responses
             }
-            total_rubric_score_accum += iter_data["scores_accum"]
-            total_rubric_score_count += iter_data["scores_count"]
-            if iter_rub_score > best_iter_score:
-                best_iter_score = iter_rub_score
-                current_best_iter_id = iter_id
-        
-        if total_rubric_score_count > 0:
-            agg_rubric_score = round(total_rubric_score_accum / total_rubric_score_count, 2)
-            model_entry["creative_writing_rubric_score_agg"] = agg_rubric_score
-            if "elo" not in model_entry: # New model, interpolate ELO
-                model_entry["elo"] = round(interpolate_elo_from_rubric_scores_cw(model_name, agg_rubric_score, existing_analyses), 2)
-        elif "creative_writing_rubric_score_agg" not in model_entry: # No new data, no old data
-             model_entry["creative_writing_rubric_score_agg"] = 0.0 # Default rubric if no scores
-             if "elo" not in model_entry: model_entry["elo"] = DEFAULT_ELO
+            all_comparisons_global.append(comp_dict)
 
-
-        if current_best_iter_id: model_entry["best_iteration"] = str(current_best_iter_id)
-        model_entry.setdefault("elo_analysis", {"pairwise_comparisons": [], "final_elo_ratings": {}})
-
+    # Ensure test_model exists in analyses
     if test_model not in existing_analyses:
-        logging.warning(f"[ELO-CW] Test model '{test_model}' has no data after aggregation. Adding with default ELO.")
+        logging.warning(f"[ELO-CW] Test model '{test_model}' has no data. Adding with default ELO.")
         existing_analyses[test_model] = {
-            "elo": DEFAULT_ELO, "creative_writing_rubric_score_agg": 0.0,
-            "iterations": {}, "best_iteration": None,
-            "elo_analysis": {"pairwise_comparisons": [], "final_elo_ratings": {}}
+            "elo": DEFAULT_ELO,
+            "creative_writing_rubric_score_agg": 0.0,
+            "iterations": {},
+            "best_iteration": None,
+            "elo_analysis": {"pairwise_comparisons": []}
         }
         all_model_names_in_system.add(test_model)
 
+    all_model_names_in_system = set(existing_analyses.keys())
 
-    # 5. Prepare for ELO Sampling Loop
-    # Aggregate all existing comparisons from all models for the solver
-    all_comparisons_global: List[Dict[str, Any]] = []
-    for m_name, m_data in existing_analyses.items():
-        if m_name == "__metadata__": continue
-        comps = m_data.get("elo_analysis", {}).get("pairwise_comparisons", [])
-        all_comparisons_global.extend(comps)
-    
-    # Deduplicate this global list (in-memory version)
-    all_comparisons_global = deduplicate_comparisons_cw(all_comparisons_global) # Global dedupe
-    logging.info(f"[ELO-CW] Loaded {len(all_comparisons_global)} unique global comparisons from existing data.")
-
-    if recompute_all_fractions:
-        recompute_fractions_for_comparisons_cw(all_comparisons_global)
-        # Also recompute for per-model storage (will be saved later)
-        for m_name_iter in all_model_names_in_system:
-            if m_name_iter in existing_analyses and "elo_analysis" in existing_analyses[m_name_iter]:
-                recompute_fractions_for_comparisons_cw(existing_analyses[m_name_iter]["elo_analysis"]["pairwise_comparisons"])
-
+    # Comparisons already loaded from DB above, just deduplicate
+    all_comparisons_global = deduplicate_comparisons_cw(all_comparisons_global)
+    logging.info(f"[ELO-CW] Loaded {len(all_comparisons_global)} unique global comparisons from DB")
 
     # Build initial set of matchups already judged (globally)
     initial_existing_matchups_global = build_existing_matchup_set_cw(all_comparisons_global)
@@ -737,7 +792,7 @@ def run_elo_analysis_creative(
                         test_model, opponent_model_name,
                         matchups_for_this_opponent,
                         pairwise_prompt_template, writing_prompts,
-                        judge_model, api_clients,
+                        judge_models,
                         max_workers=concurrency 
                     )
                     return new_comps_for_opponent
@@ -827,18 +882,28 @@ def run_elo_analysis_creative(
         logging.info(f"[ELO-CW] Stage {stage_idx} finished. Reason: {'stable rank' if stable else ('max loops reached' if loops >= MAX_STAGE_LOOPS else 'error')}")
         if elo_error_message: break 
 
-    # 7. Save newly generated comparisons for the current test_model to its entry in existing_analyses
+    # 7. Save newly generated comparisons to the DB
     if new_comparisons_generated_this_run_for_test_model:
-        logging.info(f"[ELO-CW] Appending {len(new_comparisons_generated_this_run_for_test_model)} new comparisons for '{test_model}'.")
-        existing_analyses[test_model].setdefault("elo_analysis", {}).setdefault("pairwise_comparisons", [])
+        logging.info(f"[ELO-CW] Saving {len(new_comparisons_generated_this_run_for_test_model)} new comparisons to database.")
         
-        existing_analyses[test_model]["elo_analysis"]["pairwise_comparisons"].extend(new_comparisons_generated_this_run_for_test_model)
+        # Convert to EloComparison objects and insert into DB
+        for comp in new_comparisons_generated_this_run_for_test_model:
+            pair = comp.get("pair", {})
+            db.insert_elo_comparison({
+                "run_key": run_key,
+                "item_id": comp.get("item_id"),
+                "model_a": pair.get("test_model"),
+                "model_a_iteration_id": pair.get("test_model_iteration_id"),
+                "model_b": pair.get("neighbor_model"),
+                "model_b_iteration_id": pair.get("neighbor_model_iteration_id"),
+                "aggregated_judge_responses": comp.get("judge_responses", []),
+                "aggregated_plus_for_a": comp.get("plus_for_test", 0),
+                "aggregated_plus_for_b": comp.get("plus_for_other", 0),
+                "fraction_for_a": comp.get("fraction_for_test", 0.5),
+            })
+
         
-        existing_analyses[test_model]["elo_analysis"]["pairwise_comparisons"] = deduplicate_comparisons_cw(
-            existing_analyses[test_model]["elo_analysis"]["pairwise_comparisons"],
-            model_name_filter=test_model 
-        )
-        logging.info(f"[ELO-CW] After deduplication, '{test_model}' has {len(existing_analyses[test_model]['elo_analysis']['pairwise_comparisons'])} comparisons.")
+        logging.info(f"[ELO-CW] Successfully saved {len(new_comparisons_generated_this_run_for_test_model)} comparisons to DB.")
     else:
         logging.info(f"[ELO-CW] No new comparisons were generated for '{test_model}' in this run.")
 
@@ -850,8 +915,7 @@ def run_elo_analysis_creative(
     if not models_for_final_solve:
         logging.warning("[ELO-CW] No models available for final ELO solve.")
         if not elo_error_message: elo_error_message = "No models for final solve."
-        save_json_file(existing_analyses, elo_results_file)
-        return existing_analyses, elo_error_message
+        return {}, elo_error_message
 
 
     final_comps_for_solver = get_solver_comparisons_cw(all_comparisons_global, elo_snapshot, RANK_WINDOW)
@@ -921,22 +985,9 @@ def run_elo_analysis_creative(
             final_elo_results_snapshot[m_name]["ci_high_norm"] = round(norm_plus_bounds.get(f"{m_name}__ci_high", norm_elo_fallback), 2)
 
 
-    # 9. Update existing_analyses with final ELOs and save
-    for m_name, elo_data in final_elo_results_snapshot.items():
-        if m_name not in existing_analyses: existing_analyses[m_name] = {} 
-        existing_analyses[m_name].update(elo_data)
-        existing_analyses[m_name].setdefault("elo_analysis", {}).setdefault("final_elo_ratings", {})
-        existing_analyses[m_name]["elo_analysis"]["final_elo_ratings"][m_name] = elo_data["elo"] 
-
-    existing_analyses["__metadata__"]["last_updated_elo_cw"] = datetime.now(timezone.utc).isoformat()
-
-    save_success = save_json_file(existing_analyses, elo_results_file)
-    if not save_success:
-        msg = f"FAILED to save final ELO results to {elo_results_file}"
-        logging.error(f"[ELO-CW] {msg}")
-        if not elo_error_message: elo_error_message = msg
-    else:
-        logging.info(f"[ELO-CW] Successfully saved final ELO results to {elo_results_file}")
-        logging.info(f"[ELO-CW] Test model '{test_model}' final ELO: {existing_analyses.get(test_model, {}).get('elo', 'N/A')}, Norm ELO: {existing_analyses.get(test_model, {}).get('elo_norm', 'N/A')}")
+    # 9. Save final ELO ratings to DB
+    db.upsert_elo_ratings(final_elo_results_snapshot)
+    logging.info(f"[ELO-CW] Successfully saved final ELO ratings to database")
+    logging.info(f"[ELO-CW] Test model '{test_model}' final ELO: {final_elo_results_snapshot.get(test_model, {}).get('elo', 'N/A')}, Norm ELO: {final_elo_results_snapshot.get(test_model, {}).get('elo_norm', 'N/A')}")
 
     return final_elo_results_snapshot, elo_error_message

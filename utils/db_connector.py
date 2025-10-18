@@ -58,6 +58,10 @@ class DBConnector:
                 logging.info(f"Resuming run: {run_key}")
         return run
 
+    def get_run(self, run_key: str) -> Optional[Run]:
+        with self.get_session() as session:
+            return session.query(Run).filter_by(run_key=run_key).first()
+
     def update_run(self, run_key: str, updates: Dict[str, Any]):
         with self.get_session() as session:
             session.query(Run).filter_by(run_key=run_key).update(updates)
@@ -82,10 +86,35 @@ class DBConnector:
         with self.get_session() as session:
             session.bulk_save_objects(results)
 
+    def reset_judging_for_task(self, task_id: int):
+        """Deletes all judge results for a task and resets its status to 'generated'."""
+        with self.get_session() as session:
+            session.query(JudgeResult).filter_by(task_id=task_id).delete()
+            session.query(Task).filter_by(id=task_id).update({"status": "generated", "aggregated_scores": None})
+
     # --- ELO Management ---
     def get_all_elo_comparisons(self) -> List[EloComparison]:
         with self.get_session() as session:
             return session.query(EloComparison).all()
+
+    def get_elo_comparisons_for_models(self, model_names: List[str]) -> List[EloComparison]:
+        """Get ELO comparisons involving specific models."""
+        with self.get_session() as session:
+            return session.query(EloComparison).filter(
+                (EloComparison.model_a.in_(model_names)) | 
+                (EloComparison.model_b.in_(model_names))
+            ).all()
+
+    def insert_elo_comparison(self, comparison_data: Dict[str, Any]):
+        """Insert a single ELO comparison."""
+        with self.get_session() as session:
+            comp = EloComparison(**comparison_data)
+            session.add(comp)
+
+    def bulk_insert_elo_comparisons(self, comparisons: List[EloComparison]):
+        """Bulk insert ELO comparisons."""
+        with self.get_session() as session:
+            session.bulk_save_objects(comparisons)
 
     def get_elo_ratings(self) -> Dict[str, EloRating]:
         with self.get_session() as session:

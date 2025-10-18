@@ -5,6 +5,8 @@ import random
 import numpy as np
 from typing import Dict, Any, List
 
+from utils.db_connector import db
+from utils.db_schema import JudgeResult
 
 SCORE_RANGE_MIN = 0
 SCORE_RANGE_MAX = 20
@@ -44,35 +46,28 @@ def invert_if_negative(metric: str, score: float, negative_criteria: List[str]) 
     return score
 
 
-def compute_creative_scores(tasks: List[Dict[str, Any]], negative_criteria: List[str]) -> float:
+def compute_creative_scores(tasks: List[Any], negative_criteria: List[str]) -> float:
     """
-    Each “task” can have multiple seed modifiers, each with judge_scores.  
-    We'll gather all numeric scores, invert negative metrics, average them, 
-    then that is each piece’s final. Then average across all pieces => 0..20 scale.
+    Computes average score from tasks that have aggregated_scores.
+    Each task should have aggregated_scores['piece_score_0_20'] already computed.
     """
     piece_scores = []
-    for task_data in tasks:
-        # results_by_modifier => { seedMod: {"model_response":..., "judge_scores":{}} }
-        rdict = task_data.get("results_by_modifier", {})
-        for seed_mod, block in rdict.items():
-            j_scores = block.get("judge_scores", {})
-            if not j_scores:
-                continue
-            # Gather valid numeric scores
-            local_vals = []
-            for metric, val in j_scores.items():
-                if isinstance(val, (int, float)):
-                    new_val = invert_if_negative(metric, val, negative_criteria)
-                    if new_val <= SCORE_RANGE_MAX:
-                        local_vals.append(new_val)
-            if local_vals:
-                piece_score = sum(local_vals) / len(local_vals)  # average 0..20
+    for task in tasks:
+        # Tasks are now SQLAlchemy Task objects with aggregated_scores attribute
+        if hasattr(task, 'aggregated_scores') and task.aggregated_scores:
+            piece_score = task.aggregated_scores.get('piece_score_0_20')
+            if piece_score is not None and isinstance(piece_score, (int, float)):
+                piece_scores.append(piece_score)
+        # Fallback for legacy JSON structure if needed
+        elif isinstance(task, dict) and 'aggregated_scores' in task:
+            piece_score = task['aggregated_scores'].get('piece_score_0_20')
+            if piece_score is not None and isinstance(piece_score, (int, float)):
                 piece_scores.append(piece_score)
 
     if not piece_scores:
         return 0.0
-    #print('item score:', sum(piece_scores) / len(piece_scores) / 2)
     return sum(piece_scores) / len(piece_scores)
+
 
 
 def compute_single_benchmark_score_creative(tasks, negative_criteria):
@@ -133,3 +128,113 @@ def bootstrap_benchmark_stability_creative(tasks, negative_criteria, n_bootstrap
         "confidence_level": confidence_level,
         "n_bootstrap": n_bootstrap
     }
+
+
+def aggregate_ensemble_scores(task_id: int, aggregation_method: str = 'average_with_outlier_removal'):
+    """
+    Aggregates scores from multiple judges for a single task into a final score.
+    
+    Reads all JudgeResult rows for the task, computes per-metric averages across judges,
+    applies invert_if_negative for negative criteria, and saves the aggregated score
+    to Task.aggregated_scores.
+    
+    Args:
+        task_id: The database ID of the task
+        aggregation_method: Method for aggregation ('average' or 'average_with_outlier_removal')
+    """
+    with db.get_session() as session:
+        # Get all judge results for this task, ordered by judge_order_index
+        judge_results = session.query(JudgeResult).filter_by(task_id=task_id).order_by(JudgeResult.judge_order_index).all()
+        
+        if not judge_results:
+            logging.warning(f"No judge results found for task {task_id}")
+            return
+        
+        # Get the task to access negative_criteria if needed (stored in run_config)
+        from utils.db_schema import Task
+        task = session.query(Task).filter_by(id=task_id).first()
+        if not task:
+            logging.error(f"Task {task_id} not found")
+            return
+        
+        # Collect all metrics and their scores from each judge
+        metric_scores = {}  # metric_name -> [score1, score2, ...]
+        
+        for jr in judge_results:
+            if jr.judge_scores and not jr.judge_scores.get('error'):
+                for metric, score in jr.judge_scores.items():
+                    if isinstance(score, (int, float)) and score <= SCORE_RANGE_MAX:
+                        if metric not in metric_scores:
+                            metric_scores[metric] = []
+                        metric_scores[metric].append(score)
+        
+        if not metric_scores:
+            logging.warning(f"No valid scores found for task {task_id}")
+            db.update_task(task_id, {"status": "error", "error_message": "No valid judge scores"})
+            return
+        
+        # Aggregate scores per metric
+        aggregated_metrics = {}
+        for metric, scores in metric_scores.items():
+            if aggregation_method == 'average_with_outlier_removal' and len(scores) >= 3:
+                # Remove min and max outliers if we have at least 3 judges
+                sorted_scores = sorted(scores)
+                trimmed = sorted_scores[1:-1]  # Remove lowest and highest
+                avg_score = sum(trimmed) / len(trimmed)
+            else:
+                # Simple average
+                avg_score = sum(scores) / len(scores)
+            
+            aggregated_metrics[metric] = round(avg_score, 2)
+        
+        # Load negative criteria from somewhere accessible
+        # For now, we'll assume it's passed or stored; let's load from a known location
+        # Actually, the negative_criteria should be available from the benchmark logic
+        # For simplicity, we'll apply invert_if_negative with an empty list for now
+        # The caller (compute_benchmark_results_creative) has access to it
+        # So we'll store raw scores here and let the compute function handle inversion
+        
+        # Compute overall piece score (0-20) by averaging all metric scores
+        # We need to know which metrics are negative to invert them
+        # Let's read negative_criteria from a standard location
+        from pathlib import Path
+        neg_path = None
+        try:
+            neg_path = (task.run.run_config or {}).get("negative_criteria_file")
+        except Exception:
+            neg_path = None
+
+        try:
+            path_to_read = Path(neg_path) if neg_path else Path("data/negative_criteria.txt")
+            negative_criteria = [line.strip() for line in path_to_read.read_text(encoding='utf-8').splitlines() if line.strip()]
+        except Exception:
+            negative_criteria = []
+            logging.warning(f"Could not load negative criteria for task {task_id} aggregation from '{neg_path or 'data/negative_criteria.txt'}'")
+
+        
+        # Apply inversion and compute average
+        inverted_scores = []
+        for metric, score in aggregated_metrics.items():
+            inverted = invert_if_negative(metric, score, negative_criteria)
+            if inverted <= SCORE_RANGE_MAX:
+                inverted_scores.append(inverted)
+        
+        if not inverted_scores:
+            logging.warning(f"No valid inverted scores for task {task_id}")
+            piece_score = 0.0
+        else:
+            piece_score = round(sum(inverted_scores) / len(inverted_scores), 2)
+        
+        # Save aggregated scores to task
+        aggregated_data = {
+            "piece_score_0_20": piece_score,
+            "per_metric": aggregated_metrics,
+            "n_judges": len(judge_results)
+        }
+        
+        db.update_task(task_id, {
+            "aggregated_scores": aggregated_data,
+            "status": "completed"
+        })
+        
+        logging.debug(f"Aggregated scores for task {task_id}: {piece_score:.2f} from {len(judge_results)} judges")
