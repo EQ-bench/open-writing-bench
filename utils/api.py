@@ -19,6 +19,7 @@ import yaml
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
+from inspect_ai.model import get_model, GenerateConfig, Model
 
 from .config_loader import get_judge_config
 
@@ -124,16 +125,23 @@ class OpenAICompatibleClient(LLMClient):
 
         raise RuntimeError(f"Failed to generate text from {self.model_name} after {self.max_retries} attempts")
 
+
+
 class InspectAIClient(LLMClient):
-    """Client for local models via inspect-ai (vLLM and Transformers)."""
-    def __init__(self, model_name: str, provider: str, vllm_params_file: Optional[str] = None, **kwargs):
+    def __init__(self, model_name: str, provider: str, vllm_params_file: Optional[str] = None,
+                 max_connections: Optional[int] = None,
+                 default_temperature: float = 0.7,
+                 **kwargs):
         if not INSPECT_AI_AVAILABLE:
             raise RuntimeError("inspect-ai is not installed. Cannot use vLLM or Transformers providers.")
         super().__init__(model_name, **kwargs)
         self.provider = provider
         self.vllm_params_file = vllm_params_file
         self.model: Optional[Model] = None
+        self.max_connections = max_connections
+        self.default_temperature = default_temperature
         logging.debug(f"Initializing InspectAIClient for {model_name} with provider {provider}")
+
 
     def _get_model(self) -> Model:
         if self.model is None:
@@ -148,18 +156,20 @@ class InspectAIClient(LLMClient):
                 else:
                     logging.warning(f"vLLM params file not found: {self.vllm_params_file}. Using inspect-ai defaults.")
 
-            self.model = get_model(self.provider, model=self.model_name)
+            gen_cfg = GenerateConfig(max_connections=self.max_connections) if self.max_connections else GenerateConfig()
+            self.model = get_model(self.provider, model=self.model_name, config=gen_cfg)
+
         return self.model
 
     async def _generate_async(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
         model = self._get_model()
         # inspect-ai uses 'max_new_tokens' for its generate function
-        response = await model.generate(
-            input=prompt,
-            temperature=temperature,
-            max_new_tokens=max_tokens,
-            **kwargs
+        cfg = GenerateConfig(
+            temperature=temperature if temperature is not None else self.default_temperature,
+            max_tokens=max_tokens,
         )
+        response = await model.generate(input=prompt, config=cfg)
+
         return response.output.completion
 
     def generate(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
@@ -176,17 +186,40 @@ class InspectAIClient(LLMClient):
             self._generate_async(prompt, temperature, max_tokens, **kwargs)
         )
 
-def get_client(name_or_key: str, client_type: str, vllm_params_file: Optional[str] = None) -> LLMClient:
+def get_client(name_or_key: str, client_type: str,
+               vllm_params_file: Optional[str] = None,
+               test_provider: Optional[str] = None) -> LLMClient:
     """
     Factory function to create clients for either 'test' or 'judge' models.
     """
     if client_type == 'test':
+        # If CLI provided a provider, use it; else fall back to models.yaml
+        if test_provider:
+            if test_provider == 'openai':
+                api_key = os.getenv("TEST_API_KEY")
+                base_url = os.getenv("TEST_API_URL")
+                if not api_key or not base_url:
+                    raise ValueError("TEST_API_KEY or TEST_API_URL is not set in environment for test provider 'openai'.")
+                return OpenAICompatibleClient(name_or_key, api_key, base_url)
+            elif test_provider in ('vllm', 'transformers'):
+                if not INSPECT_AI_AVAILABLE:
+                    raise RuntimeError("inspect-ai is required for vllm/transformers providers.")
+                # threads from CLI is your intended concurrency; feed it as max_connections
+                return InspectAIClient(
+                    name_or_key,
+                    provider=test_provider,
+                    vllm_params_file=vllm_params_file,
+                    max_connections=os.getenv("INSPECT_MAX_CONNECTIONS") and int(os.getenv("INSPECT_MAX_CONNECTIONS")) or None
+                )
+            else:
+                raise ValueError(f"Unsupported test_provider '{test_provider}'.")
+        # Fallback: models.yaml configuration path (legacy)
         configs = _load_test_model_configs()
         if name_or_key not in configs:
-            raise ValueError(f"Test model '{name_or_key}' not found in models.yaml configuration.")
+            raise ValueError(f"Test model '{name_or_key}' not found in models.yaml configuration, "
+                             "and no --test-provider was supplied.")
         config = configs[name_or_key]
         provider = config.get('provider')
-
         if provider == 'openai':
             api_key_env = config.get('api_key_env')
             base_url_env = config.get('base_url_env')
@@ -197,13 +230,16 @@ def get_client(name_or_key: str, client_type: str, vllm_params_file: Optional[st
             if not api_key or not base_url:
                 raise ValueError(f"API key or URL environment variable not set for model {name_or_key}")
             return OpenAICompatibleClient(name_or_key, api_key, base_url)
-
         elif provider in ['vllm', 'transformers']:
-            if provider == 'vllm' and not vllm_params_file:
-                logging.warning(f"Test model provider is 'vllm' but --vllm-params-file was not provided. Using inspect-ai defaults.")
-            return InspectAIClient(name_or_key, provider, vllm_params_file=vllm_params_file)
+            return InspectAIClient(
+                name_or_key,
+                provider,
+                vllm_params_file=vllm_params_file,
+                max_connections=(int(os.getenv("INSPECT_MAX_CONNECTIONS")) if os.getenv("INSPECT_MAX_CONNECTIONS") else None),
+            )
         else:
             raise ValueError(f"Unsupported provider '{provider}' for test model '{name_or_key}'.")
+
 
     elif client_type == 'judge':
         config = get_judge_config(name_or_key) # Use the new layered config loader

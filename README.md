@@ -17,4 +17,4 @@ uv ensure-db
 
 # Run benchmark
 
-uv run bench --test-model z-ai/glm-4.6 --judge-models kimi-k2-0905,glm-4.6 --threads 96
+uv run bench --test-model z-ai/glm-4.6 --test-provider openai --judge-models kimi-k2-0905,glm-4.6 --threads 96

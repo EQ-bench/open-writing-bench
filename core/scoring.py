@@ -238,3 +238,100 @@ def aggregate_ensemble_scores(task_id: int, aggregation_method: str = 'average_w
         })
         
         logging.debug(f"Aggregated scores for task {task_id}: {piece_score:.2f} from {len(judge_results)} judges")
+
+def aggregate_ensemble_scores_bulk(run_key: str, aggregation_method: str = 'average_with_outlier_removal'):
+    """
+    Bulk-aggregate all 'judged' tasks for a run in one session:
+      - pull all judge rows once
+      - compute per-task aggregates in memory
+      - bulk update Task rows
+    """
+    from utils.db_schema import Task  # local import to avoid cycles
+    with db.get_session() as session:
+        # tasks to aggregate
+        tasks_q = (
+            session.query(Task.id, Task.run_key)
+            .filter(Task.run_key == run_key, Task.status == 'judged')
+        )
+        task_rows = tasks_q.all()
+        if not task_rows:
+            logging.info(f"No 'judged' tasks to aggregate for run {run_key}")
+            return
+
+        task_ids = [t.id for t in task_rows]
+
+        # load all judge results in one query
+        jrs = (
+            session.query(JudgeResult)
+            .filter(JudgeResult.task_id.in_(task_ids))
+            .order_by(JudgeResult.task_id, JudgeResult.judge_order_index)
+            .all()
+        )
+
+        # load negative criteria once
+        from utils.db_schema import Run
+        run = session.query(Run).filter_by(run_key=run_key).first()
+        neg_path = None
+        if run and run.run_config:
+            neg_path = (run.run_config or {}).get("negative_criteria_file")
+        try:
+            path_to_read = Path(neg_path) if neg_path else Path("data/negative_criteria.txt")
+            negative_criteria = [line.strip() for line in path_to_read.read_text(encoding='utf-8').splitlines() if line.strip()]
+        except Exception:
+            negative_criteria = []
+            logging.warning(f"Could not load negative criteria for run {run_key} from '{neg_path or 'data/negative_criteria.txt'}'")
+
+        # group results by task_id
+        by_task: Dict[int, List[JudgeResult]] = {}
+        for jr in jrs:
+            by_task.setdefault(jr.task_id, []).append(jr)
+
+        updates = []
+        for task_id in task_ids:
+            jr_list = by_task.get(task_id, [])
+            if not jr_list:
+                # no judges → leave task as-is
+                continue
+
+            # collect metric scores across judges
+            metric_scores: Dict[str, List[float]] = {}
+            for jr in jr_list:
+                if jr.judge_scores and not jr.judge_scores.get('error'):
+                    for metric, score in jr.judge_scores.items():
+                        if isinstance(score, (int, float)) and score <= SCORE_RANGE_MAX:
+                            metric_scores.setdefault(metric, []).append(score)
+
+            if not metric_scores:
+                # mark error
+                updates.append({"id": task_id, "status": "error", "aggregated_scores": {"error": "No valid judge scores"}})
+                continue
+
+            # aggregate per metric
+            aggregated_metrics: Dict[str, float] = {}
+            for metric, scores in metric_scores.items():
+                if aggregation_method == 'average_with_outlier_removal' and len(scores) >= 3:
+                    s = sorted(scores)
+                    s = s[1:-1]  # drop min/max
+                    avg = sum(s) / len(s)
+                else:
+                    avg = sum(scores) / len(scores)
+                aggregated_metrics[metric] = round(avg, 2)
+
+            # invert negatives and compute piece score
+            inverted_scores = []
+            for metric, score in aggregated_metrics.items():
+                inv = invert_if_negative(metric, score, negative_criteria)
+                if inv <= SCORE_RANGE_MAX:
+                    inverted_scores.append(inv)
+            piece_score = round(sum(inverted_scores) / len(inverted_scores), 2) if inverted_scores else 0.0
+
+            aggregated_data = {
+                "piece_score_0_20": piece_score,
+                "per_metric": aggregated_metrics,
+                "n_judges": len(jr_list),
+            }
+            updates.append({"id": task_id, "aggregated_scores": aggregated_data, "status": "completed"})
+
+        if updates:
+            session.bulk_update_mappings(Task, updates)
+            logging.info(f"Aggregated and updated {len(updates)} tasks for run {run_key}")

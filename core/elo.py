@@ -14,7 +14,7 @@ from datetime import datetime, timezone # For timestamps
 from collections import defaultdict
 
 from utils.db_connector import db
-from utils.db_schema import Task, JudgeResult, EloComparison, EloRating
+from utils.db_schema import Task, JudgeResult, EloComparison, EloRating, Run
 from utils.api import get_client
 
 # Import from new CW-specific ELO modules
@@ -493,7 +493,15 @@ def run_elo_analysis_creative(
     # We need to query all tasks to get texts and rubric scores for ELO comparisons
     with db.get_session() as session:
         # Get all completed tasks across all runs
-        all_tasks = session.query(Task).filter(Task.status == 'completed').all()
+        all_tasks = (
+            session.query(Task)
+            .join(Run, Task.run_key == Run.run_key)
+            .filter(
+                Task.status == 'completed',
+                ((Run.status == 'completed') | (Task.run_key == run_key))
+            )
+            .all()
+        )
         logging.info(f"[ELO-CW] Found {len(all_tasks)} completed tasks across all runs")
         
         # Build model iteration structure: model -> iter -> items/scores
@@ -556,7 +564,15 @@ def run_elo_analysis_creative(
         
         # 3. Load existing ELO comparisons from DB
         all_comparisons_global = []
-        db_comparisons = session.query(EloComparison).all()
+        db_comparisons = (
+            session.query(EloComparison)
+            .outerjoin(Run, EloComparison.run_key == Run.run_key)
+            .filter(
+                (EloComparison.run_key == run_key) | (Run.status == 'completed')
+            )
+            .all()
+        )
+
         logging.info(f"[ELO-CW] Loaded {len(db_comparisons)} existing comparisons from DB")
         
         # Convert DB comparisons to the format expected by the ELO logic

@@ -25,7 +25,8 @@ class DBConnector:
                 raise ValueError("DATABASE_URL environment variable not set.")
             
             cls._engine = create_engine(db_url)
-            cls._Session = sessionmaker(bind=cls._engine)
+            cls._Session = sessionmaker(bind=cls._engine, expire_on_commit=False)
+
             logging.info("Database connector initialized.")
         return cls._instance
 

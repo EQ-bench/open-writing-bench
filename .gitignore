@@ -6,3 +6,7 @@ association_analysis_results.json
 experiments/style_analysis_embeddings
 bct.txt
 .venv
+*.egg-info/
+*.egg-info
+dist/
+build/

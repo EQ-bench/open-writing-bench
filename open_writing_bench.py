@@ -7,6 +7,7 @@ import argparse
 import sys
 import signal
 import logging
+import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from utils.logging_setup import setup_logging, get_verbosity
@@ -21,8 +22,11 @@ def signal_handler(signum, frame):
 def main():
     parser = argparse.ArgumentParser(description="Run Creative Writing Benchmark (with iterations).")
     parser.add_argument("--test-model", required=True, help="The model name or identifier for the test model.")
+    parser.add_argument("--test-provider", required=True, choices=["openai","vllm","transformers"],
+                        help="Backend for the test model. Credentials/URL come from TEST_API_KEY/TEST_API_URL for 'openai'.")
+
     parser.add_argument("--judge-models", required=True, help="Comma-delimited list of judge model names (supports duplicates for stacking).")
-    parser.add_argument("--run-id", help="Optional: Resume or create a run with this ID prefix")
+    parser.add_argument("--run-id", help="Optional: Resume or create a run with this ID")
     parser.add_argument("--threads", type=int, default=4, help="Number of parallel threads.")
     parser.add_argument("--verbosity", choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'], default="INFO")
     parser.add_argument("--redo-judging", action="store_true", default=False, help="Re-run the judge step on existing items.")
@@ -36,6 +40,8 @@ def main():
     parser.add_argument("--no-elo", action="store_true", default=False, help="Disable the ELO analysis step.")
 
     args = parser.parse_args()
+    os.environ["INSPECT_MAX_CONNECTIONS"] = str(args.threads)
+
     setup_logging(get_verbosity(args.verbosity))
 
     # Hook signals
@@ -52,6 +58,7 @@ def main():
 
     run_key = run_eq_bench_creative(
         test_model=args.test_model,
+        test_provider=args.test_provider,
         judge_models=judge_models,
         num_threads=args.threads,
         run_id=args.run_id,
@@ -64,6 +71,7 @@ def main():
         run_elo=run_elo_flag,
         vllm_params_file=args.vllm_params_file
     )
+
 
     logging.info(f"Creative writing benchmark completed. Run key: {run_key}")
     print(f"\nCreative writing benchmark completed. Run key: {run_key}")

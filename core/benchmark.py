@@ -9,10 +9,7 @@ run initialization, task creation, parallelized generation and judging,
 final scoring, and ELO analysis.
 """
 
-import os
-import re
 import uuid
-import time
 import logging
 from datetime import datetime, timezone
 import json
@@ -28,7 +25,7 @@ from core.conversation import CreativeWritingTask
 from core.scoring import (
     compute_single_benchmark_score_creative,
     bootstrap_benchmark_stability_creative,
-    aggregate_ensemble_scores
+    aggregate_ensemble_scores_bulk
 )
 from core.elo import run_elo_analysis_creative
 
@@ -37,12 +34,9 @@ def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str
     Gathers all completed tasks from the DB for the run, aggregates their final
     scores, performs bootstrap analysis, and saves the results to the run record.
     """
-    logging.info(f"Aggregating ensemble scores for run {run_key}...")
-    tasks_to_aggregate = db.get_tasks_for_run(run_key, status_filter='judged')
-    for task in tqdm(tasks_to_aggregate, desc="Aggregating Scores"):
-        # This function calculates the final score from the ensemble and saves it
-        # to the task record, changing its status to 'completed'.
-        aggregate_ensemble_scores(task.id, aggregation_method='average_with_outlier_removal')
+    logging.info(f"Aggregating ensemble scores for run {run_key}...")    
+    aggregate_ensemble_scores_bulk(run_key, aggregation_method='average_with_outlier_removal')
+
 
     logging.info(f"Calculating final benchmark results for run {run_key}...")
     completed_tasks = db.get_tasks_for_run(run_key, status_filter='completed')
@@ -77,6 +71,7 @@ def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str
 
 def run_eq_bench_creative(
     test_model: str,
+    test_provider: str,
     judge_models: List[str],
     num_threads: int,
     run_id: Optional[str],
@@ -93,9 +88,8 @@ def run_eq_bench_creative(
     Main function to run the creative writing benchmark using the database.
     """
     # --- 1. Initialize Run and Load Assets ---
-    sanitized_model = re.sub(r'[^a-zA-Z0-9_-]+', '_', test_model)
-    base_id = run_id if run_id else str(uuid.uuid4())
-    run_key = f"{base_id}__{sanitized_model}"
+    run_key = run_id if run_id else str(uuid.uuid4())
+
 
     run_config = {
         "judge_models": judge_models,
@@ -105,6 +99,8 @@ def run_eq_bench_creative(
         "negative_criteria_file": negative_criteria_file,
         "judge_prompt_file": judge_prompt_file,
         "vllm_params_file": vllm_params_file,
+        "test_model": test_model,
+        "test_provider": test_provider,
     }
 
     db.get_or_create_run(run_key, test_model, run_config)
@@ -143,7 +139,10 @@ def run_eq_bench_creative(
     logging.info("Starting generation phase...")
     tasks_to_generate = db.get_tasks_for_run(run_key, status_filter='initialized')
     if tasks_to_generate:
-        test_model_client = get_client(test_model, client_type='test', vllm_params_file=vllm_params_file)
+        test_model_client = get_client(test_model, client_type='test',
+                               vllm_params_file=vllm_params_file,
+                               test_provider=test_provider)
+
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
             for task in tasks_to_generate:

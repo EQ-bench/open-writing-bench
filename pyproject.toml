@@ -1,25 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "open-writing-bench"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "alembic>=1.17.0",
-    "inspect-ai>=0.3.139",
-    "joblib>=1.5.2",
-    "nltk>=3.9.2",
-    "numpy>=2.3.4",
-    "psycopg2-binary>=2.9.11",
-    "python-dotenv>=1.1.1",
-    "pyyaml>=6.0.3",
-    "requests>=2.32.5",
-    "scipy>=1.16.2",
-    "sqlalchemy>=2.0.44",
-    "tqdm>=4.67.1",
-    "trueskill>=0.4.5",
-    "wordfreq>=3.1.1",
+  "alembic>=1.17.0",
+  "inspect-ai>=0.3.139",
+  "joblib>=1.5.2",
+  "nltk>=3.9.2",
+  "numpy>=2.3.4",
+  "psycopg2-binary>=2.9.11",
+  "python-dotenv>=1.1.1",
+  "pyyaml>=6.0.3",
+  "requests>=2.32.5",
+  "scipy>=1.16.2",
+  "sqlalchemy>=2.0.44",
+  "tqdm>=4.67.1",
+  "trueskill>=0.4.5",
+  "wordfreq>=3.1.1",
 ]
-[tool.uv.scripts]
-ensure-db = "python alembic/ensure_db.py"
-bench = "python open_writing_bench.py"
+
+[project.scripts]
+bench = "open_writing_bench:main"
+ensure-db = "alembic.ensure_db:main"
+
+# Only install the Python packages you actually import.
+[tool.setuptools.packages.find]
+include = ["core", "utils", "alembic"]
+exclude = ["config*", "data*"]
+
+# Also install top-level single-file modules as importable modules.
+[tool.setuptools]
+py-modules = ["open_writing_bench", "creative_writing_bench"]
+
+[tool.uv]
+package = true
