@@ -10,3 +10,4 @@ bct.txt
 *.egg-info
 dist/
 build/
+alembic/versions
