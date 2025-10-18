@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from utils.logging_setup import setup_logging, get_verbosity
-from core.benchmark import run_eq_bench_creative
+
 
 load_dotenv()
 
@@ -43,6 +43,9 @@ def main():
     os.environ["INSPECT_MAX_CONNECTIONS"] = str(args.threads)
 
     setup_logging(get_verbosity(args.verbosity))
+
+    # import after logging is configured
+    from core.benchmark import run_eq_bench_creative
 
     # Hook signals
     signal.signal(signal.SIGINT, signal_handler)

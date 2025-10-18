@@ -6,7 +6,7 @@ import random
 # CW Specific Constants
 ##############################################
 # Max length for text passed to pairwise judge (from original CW elo.py)
-LENGTH_TRUNCATION_CHARS = 4000
+LENGTH_TRUNCATION_CHARS = 4500
 
 # Prompt IDs to ignore for ELO (from original CW elo.py)
 # Note: Original CW file had this defined twice with different values.

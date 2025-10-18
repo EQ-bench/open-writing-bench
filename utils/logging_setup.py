@@ -1,20 +1,33 @@
 import os
 import logging
+import sys
 
 def setup_logging(verbosity: str):
-    log_levels = {
+    levels = {
         'DEBUG': logging.DEBUG,
         'INFO': logging.INFO,
         'WARNING': logging.WARNING,
         'ERROR': logging.ERROR,
-        'CRITICAL': logging.CRITICAL
+        'CRITICAL': logging.CRITICAL,
     }
-    log_level = log_levels.get(verbosity.upper(), logging.INFO)
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    level = levels.get(verbosity.upper(), logging.INFO)
+
+    # Hard reconfigure: remove existing handlers, then add ours
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        root.removeHandler(h)
+
+    handler = logging.StreamHandler(sys.stdout)
+    fmt = logging.Formatter('%(asctime)s - %(levelname)s - %(threadName)s - %(message)s',
+                            datefmt='%Y-%m-%d %H:%M:%S')
+    handler.setFormatter(fmt)
+
+    root.addHandler(handler)
+    root.setLevel(level)
+
+    # Capture warnings and lower noisy libraries if desired
+    logging.captureWarnings(True)
+
 
 def get_verbosity(args_verbosity: str) -> str:
     if args_verbosity:
