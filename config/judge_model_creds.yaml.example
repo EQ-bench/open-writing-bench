@@ -1,0 +1,26 @@
+# config/judge_model_creds.yaml
+# Local definitions for judge models. These take precedence over the database.
+
+# Example of a standard judge using an environment variable for the key
+gpt-4o-judge:
+  model_id: 'gpt-4o'
+  provider: 'openai'
+  api_key: 'env:OPENAI_API_KEY' # Special syntax to load from environment
+  base_url: 'https://api.openai.com/v1/chat/completions'
+  system_prompt: 'You are a fair and impartial judge of creative writing.'
+
+# Example of a second judge with a different system prompt
+gpt-4o-strict-judge:
+  model_id: 'gpt-4o'
+  provider: 'openai'
+  api_key: 'env:OPENAI_API_KEY'
+  base_url: 'https://api.openai.com/v1/chat/completions'
+  system_prompt: 'You are an extremely critical literary analyst. Your standards are exceptionally high. You must justify every point you award.'
+
+# Example using a different provider's OpenAI-compatible endpoint
+claude-sonnet-judge:
+  model_id: 'anthropic/claude-3.5-sonnet'
+  provider: 'openai' # Still 'openai' because it uses a compatible API
+  api_key: 'env:ANTHROPIC_API_KEY'
+  base_url: 'https://api.anthropic.com/v1/messages' # Fictional URL, replace with actual
+  system_prompt: 'You are a helpful writing assistant providing feedback.'

@@ -1,0 +1,70 @@
+{
+  "216": {
+    "category": "young adult drama",
+    "title": "Gone South",
+    "writing_prompt": "Young adult drama\nGone South\nTaylor is a 16 year old teen with a history of \"concerning behavioural patterns\" (or that's how the stupid smug school counsellor worded it on the phone call to Mom). It shouldn't be a surprise: When you live in a backwater town in Tennessee, your choices are: a. be mind-fuckingly bored, or b. invent some drama. Two days ago, Taylor came out to their family as trans. This disclosure was *not* in the category of invented drama -- it was, in fact, the real deal, and a long time coming. It didn't go well. The last 48 hours had been pure disaster. In a moment of desperate inspiration, Taylor had decided to get the hell out of dodge. And so an escape plan was hatched and executed within the space of 30 minutes. That was last night. Now Taylor was two states away, having been unceremoniously ejected from their hitched ride in downtown New Orleans. Write the next chapter in Taylor's story as they find their feet in this new environment. Tell the chapter over the course of their first day in New Orleans, in which Taylor meets another runaway with issues and secrets. Taylor navigates this new world, not knowing who to trust or what the dangers are. Write in Taylor's voice, and incorporate their internal monologue as they grapple with intense & conflicting emotions. Also incorporate dialogue with the interesting characters Taylor meets. First person, mixed tense. <SEED> 1000 words.",
+    "seed_modifiers": [
+      "A street musician's saxophone plays in the background as Taylor walks down a crowded street.",
+      "Taylor's phone battery is at 12% with no charger in sight.",
+      "The strap on Taylor's backpack keeps slipping off their shoulder.",
+      "A light drizzle begins suddenly, forcing Taylor to seek shelter under a café awning.",
+      "The smell of fresh beignets wafts from a nearby bakery, reminding Taylor they haven't eaten since yesterday.",
+      "Taylor keeps fidgeting with a guitar pick in their pocket, a nervous habit from home.",
+      "A colorful street parade passes by, momentarily blocking Taylor's path.",
+      "The humidity makes Taylor's t-shirt stick uncomfortably to their back.",
+      "A stray cat follows Taylor for half a block before disappearing down an alley.",
+      "Taylor's shoelace comes untied three times while walking around the French Quarter."
+    ]
+  },
+  "217": {
+    "category": "whalepunk fantasy",
+    "title": "The Morska Conspiracy",
+    "writing_prompt": "Whalepunk fantasy\nThe Morska thieves guild experiences a sudden power vacuum as its leader was arrested in a raid in the early hours of the morning. Aya, a young woman born into aristocracy, has a keen interest in both the sciences and the arcane, having inherited her mother's gift for immateria magick (an outlawed practice for which her mother was, regrettably, hanged by the neck). Aya, bored with the world of aristocracy, has been spending her nights moonlighting with this very guild (masked, naturally). Leveraging her latent ability to summon dark entities from the immateria, she quickly rose through the ranks of the guild. Now, recognising the opportunity of the sudden power vacuum, Aya and her close companions Katra and Simeon, make a play for heart of the guild's claim to power: an ancient scythan artifact, under guard of spell and key in the depths of the guild hq. In contrast with the desperate chaos they had navigated thus far, the entrance to the underhold felt suddenly too quiet. Aya braces herself and reaches for the door.\n\nWrite the next scene as the trio enter the underhold and find themselves confronted by none other than the guild leader herself, decidedly *un*-incarcerated, and in possession of both weapons and bodyguards.\n\nPaint a vivid picture of of the confrontation. Story beats: Aya is captured and unmasked. The trio are captured. Aya attempts to stall their demise by negotiating on her value as a hostage -- as she grapples with the inevitable consequences of her role in the guild being brought to light. Incorporate dialogue in the authentic voices of the characters. Do not write a fight scene. Lean into the gritty Victorian aesthetic with the dialogue & worldbuilding, as well as elements of gothic horror. In this world, men trust brass and oil and steel; magicka is feared and barely understood. Write in third person past tense, incorporating both Aya's internal monologue, and a heavy dialogue component. <SEED> 1000 words.",
+    "seed_modifiers": [
+      "A distant foghorn sounds three times in the harbor beyond the guild walls.",
+      "The flickering gas lamps cast long, unsettling shadows across the stone floor.",
+      "A pocket watch ticks loudly in Simeon's waistcoat pocket, marking each tense second.",
+      "The scent of whale oil and brine permeates the damp air of the underhold.",
+      "Aya's mask feels unusually tight against her face as beads of sweat form underneath it.",
+      "Katra keeps nervously adjusting the leather straps on her gloves.",
+      "Water drips steadily from a leaking pipe overhead, creating a small puddle in the corner.",
+      "The distant rumble of coal-powered machinery vibrates through the stone walls.",
+      "A rat scurries across the floor, momentarily drawing everyone's attention.",
+      "The metal clasp on Aya's cloak catches the light, momentarily reflecting a beam toward the ceiling."
+    ]
+  },
+  "218": {
+    "category": "cozy spacepunk",
+    "title": "The Last Outpost",
+    "writing_prompt": "Cozy spacepunk\nNettle (or Nets to her friends) bartends at The Last Outpost -- a lazy hub for miners and merchants in an asteroid belt on the Andromeda outer rim. Escaping from her past life, Nets found a home here at the Outpost. They have, thus far, tolerated Net's flaws which she tries to keep in equilibrium with her assortment of talents. Her evenings involve chatting with patrons, negotiating the drama, intrigue, problems & love lives of the diverse crowd that filter through the Outpost. Tonight is no different, at least, until a frazzled looking stranger, tentacled dreads askew, quietly plops down at the bar: \"Vega whisky, neat. Better make that a double.\" Write a chapter in this story. Establish conflict for narrative interest. Don't resolve the conflict within this chapter. Aim for about 60% dialogue. First person, present tense. <SEED> 1000 words.",
+    "seed_modifiers": [
+      "A glass accidentally breaks somewhere in the background of the bar.",
+      "The station's artificial gravity fluctuates slightly, causing liquids in glasses to wobble.",
+      "Nets keeps wiping the same spot on the bar counter with a rag as she listens.",
+      "An old holographic jukebox in the corner flickers between songs.",
+      "The ice machine behind the bar makes a grinding noise every few minutes.",
+      "A small potted plant with bioluminescent leaves sits at the end of the bar, providing a soft glow.",
+      "The ventilation system occasionally makes a soft whistling sound when the air recyclers kick in.",
+      "Nets has a small scar on her thumb that she absently traces while thinking.",
+      "The stranger's drink leaves a ring-shaped mark on the wooden bar surface.",
+      "A digital clock behind the bar occasionally glitches, showing random numbers before correcting itself."
+    ]
+  },
+  "219": {
+    "category": "classic sci-fi",
+    "title": "The Azra Gambit",
+    "writing_prompt": "Classic sci-fi (Author style: Asimov)\n\nColonial mars is being mined by corporations who take leases on indentured labourers. The thing they are mining is Azra, a recently discovered exotic metal which accelerates radioactive decay to such a rate that it is greatly sought after for interstellar drives and weapons alike. This has created both a gold rush and an arms race as various interests vie for control and endeavour to unlock Azra's secrets. The story follows Arthur Neegan, a first generation settler and mining engineer. Upon discovering that his unassuming plot sits atop an immense Azra vein, he is subjected to a flurry of interest and scrutiny. Write the next chapter in this story, in which an armed retinue descends on Arthur's home and politely but forcefully invites him to a meeting with some unknown party off-world. The insignia look like that of the Antares diplomatic corp -- diplomatic in name only. Arthur finds himself in the centre of a political tug of war. The chapter involves a meeting with this unknown party, who makes Arthur an offer. The scene should be primarily dialogue, interspersed with vivid description & scene setting. It should sow hints of the larger intrigue, stakes & dangers. Include Asimov's trademark big-and-small-picture world building and retrofuturistic classic scifi vibe. The chapter begins with Arthur aboard the transfer vessel, wondering just what he's gotten involved in.\n\n<SEED> Length: 1000 words.",
+    "seed_modifiers": [
+      "The transfer vessel's air filtration system hums with a persistent mechanical drone.",
+      "Arthur keeps adjusting his collar, unused to the formal attire he was instructed to wear.",
+      "A small display screen on the wall cycles through various system diagnostics in green text.",
+      "The synthetic leather of the seat makes a squeaking noise whenever Arthur shifts his weight.",
+      "A steward robot offers refreshments at precisely timed intervals from a floating tray.",
+      "Arthur's identification badge occasionally emits a soft beep when scanned by hidden sensors.",
+      "The artificial gravity seems calibrated slightly higher than Mars standard, making Arthur's movements feel heavier.",
+      "A sealed viewport reveals nothing but the blackness of space, occasionally punctuated by distant stars.",
+      "The faint smell of industrial cleaner pervades the cabin, masking the staleness of recycled air.",
+      "Arthur repeatedly checks a small notebook in his pocket, reviewing hastily scribbled notes about his discovery."
+    ]
+  }
+}
