@@ -220,6 +220,90 @@ class InspectAIClient(LLMClient):
             self.model = cached
             return cached
 
+        # --- unified extractor ----------------------------------------------------
+    @staticmethod
+    def _extract_text_any(resp) -> str:
+        """
+        Return best-effort text from inspect-ai ModelOutput across versions.
+        Supports:
+          - resp.output.completion / resp.output.text
+          - resp.text / resp.completion
+          - resp.output[0].text / completions[0].text
+          - pydantic v2: resp.model_dump()
+          - openai-like dict: choices[0].message.content / choices[0].text
+        Raises RuntimeError if nothing usable is found.
+        """
+        # direct attrs first
+        for path in [
+            ("output", "completion"),
+            ("output", "text"),
+            ("text",),
+            ("completion",),
+        ]:
+            try:
+                cur = resp
+                for p in path:
+                    cur = getattr(cur, p)
+                if isinstance(cur, str) and cur.strip():
+                    return cur.strip()
+            except Exception:
+                pass
+
+        # indexable output variants
+        try:
+            out = getattr(resp, "output", None)
+            if isinstance(out, (list, tuple)) and out:
+                # object with .text
+                t = getattr(out[0], "text", None)
+                if isinstance(t, str) and t.strip():
+                    return t.strip()
+        except Exception:
+            pass
+
+        # pydantic v2 (model_dump)
+        try:
+            dump = None
+            if hasattr(resp, "model_dump"):
+                dump = resp.model_dump()
+            elif hasattr(resp, "dict"):
+                dump = resp.dict()
+            if isinstance(dump, dict) and dump:
+                # inspect-ai canonical dumps sometimes have {"output": {"text": "..."}}
+                cand = (
+                    (((dump.get("output") or {}).get("completion")) or (dump.get("output") or {}).get("text"))
+                    or dump.get("text")
+                )
+                if isinstance(cand, str) and cand.strip():
+                    return cand.strip()
+                # openai-like
+                ch = dump.get("choices")
+                if isinstance(ch, list) and ch:
+                    msg = (ch[0].get("message") or {})
+                    if isinstance(msg, dict) and msg.get("content"):
+                        return str(msg["content"]).strip()
+                    if ch[0].get("text"):
+                        return str(ch[0]["text"]).strip()
+        except Exception:
+            pass
+
+        # raw dict fallback
+        if isinstance(resp, dict):
+            cand = (
+                (((resp.get("output") or {}).get("completion")) or (resp.get("output") or {}).get("text"))
+                or resp.get("text")
+            )
+            if isinstance(cand, str) and cand.strip():
+                return cand.strip()
+            ch = resp.get("choices")
+            if isinstance(ch, list) and ch:
+                msg = (ch[0].get("message") or {})
+                if isinstance(msg, dict) and msg.get("content"):
+                    return str(msg["content"]).strip()
+                if ch[0].get("text"):
+                    return str(ch[0]["text"]).strip()
+
+        raise RuntimeError("inspect-ai: could not extract text from ModelOutput")
+
     async def _generate_async(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
         model = self._resolve_or_launch_model()
         cfg = GenerateConfig(
@@ -227,34 +311,62 @@ class InspectAIClient(LLMClient):
             max_tokens=max_tokens,
         )
         resp = await model.generate(input=prompt, config=cfg)
+        return self._extract_text_any(resp)
 
-        # Robust extraction across inspect-ai versions
-        # Prefer: resp.output.completion or resp.output.text
-        try:
-            out = getattr(resp, "output", None)
-            if out is not None:
-                if hasattr(out, "completion") and out.completion:
-                    return str(out.completion).strip()
-                if hasattr(out, "text") and out.text:
-                    return str(out.text).strip()
-        except Exception:
-            pass
-
-        # Fallbacks
-        if hasattr(resp, "text") and getattr(resp, "text"):
-            return str(getattr(resp, "text")).strip()
-        if isinstance(resp, dict):
-            # some versions may return dict-like
-            cand = (resp.get("output") or {}).get("completion") or resp.get("text")
-            if cand:
-                return str(cand).strip()
-
-        raise RuntimeError("inspect-ai: could not extract text from ModelOutput")
 
     def generate(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
         loop = self._ensure_loop()
         fut = asyncio.run_coroutine_threadsafe(
             self._generate_async(prompt, temperature, max_tokens, **kwargs),
+            loop
+        )
+        return fut.result()
+
+        # --- batch API ------------------------------------------------------------
+    async def _generate_many_async(self, prompts: list[str], temperature: float, max_tokens: int) -> list[str]:
+        model = self._resolve_or_launch_model()
+        cfg = GenerateConfig(
+            temperature=temperature if temperature is not None else self.default_temperature,
+            max_tokens=max_tokens,
+        )
+        # Try native batched call first (inspect-ai supports list input in recent versions)
+        try:
+            resp = await model.generate(input=prompts, config=cfg)
+            # resp may be a list-like of ModelOutput or a single object with .output as list
+            outs = []
+            if isinstance(resp, (list, tuple)):
+                for r in resp:
+                    outs.append(self._extract_text_any(r))
+            else:
+                # try resp.output as a list
+                out = getattr(resp, "output", None)
+                if isinstance(out, (list, tuple)):
+                    for r in out:
+                        outs.append(self._extract_text_any(r))
+                else:
+                    # fallback: single response replicated? treat as single
+                    outs.append(self._extract_text_any(resp))
+            if len(outs) == len(prompts):
+                return outs
+        except Exception:
+            # fall back to parallel per-prompt on the same loop
+            tasks = [model.generate(input=p, config=cfg) for p in prompts]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            outs = []
+            for r in results:
+                if isinstance(r, Exception):
+                    outs.append(f"[ERROR] {r}")
+                else:
+                    try:
+                        outs.append(self._extract_text_any(r))
+                    except Exception as e:
+                        outs.append(f"[ERROR] {e}")
+            return outs
+
+    def generate_many(self, prompts: list[str], temperature: float, max_tokens: int) -> list[str]:
+        loop = self._ensure_loop()
+        fut = asyncio.run_coroutine_threadsafe(
+            self._generate_many_async(prompts, temperature, max_tokens),
             loop
         )
         return fut.result()

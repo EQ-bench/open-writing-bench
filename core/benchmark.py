@@ -135,7 +135,7 @@ def run_eq_bench_creative(
         logging.info(f"Creating {len(tasks_to_create)} new tasks in the database.")
         db.bulk_insert_tasks(tasks_to_create)
 
-    # --- 3. Generation Phase ---
+        # --- 3. Generation Phase ---
     logging.info("Starting generation phase...")
     tasks_to_generate = db.get_tasks_for_run(run_key, status_filter='initialized')
     if tasks_to_generate:
@@ -143,24 +143,65 @@ def run_eq_bench_creative(
                                vllm_params_file=vllm_params_file,
                                test_provider=test_provider)
 
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = []
+        # if the client supports batch, submit in batches; else keep thread pool
+        supports_batch = hasattr(test_model_client, "generate_many")
+
+        if supports_batch:
+            # prepare prompts in original order
+            prompts = []
+            task_ids = []
             for task in tasks_to_generate:
                 prompt_obj = creative_prompts[task.prompt_id]
                 base_prompt = prompt_obj["writing_prompt"]
                 seed_mods = prompt_obj["seed_modifiers"]
                 seed_modifier = seed_mods[(task.iteration_index - 1) % len(seed_mods)]
-                
-                task_controller = CreativeWritingTask(task)
-                futures.append(executor.submit(task_controller.generate_creative_piece, test_model_client, base_prompt, seed_modifier))
+                final_prompt = base_prompt.replace("<SEED>", seed_modifier)
+                prompts.append(final_prompt)
+                task_ids.append(task.id)
 
-            for future in tqdm(list(futures), desc="Generating creative pieces"):
+            # chunk to avoid giant payloads; reuse args.threads as chunk-size heuristic
+            chunk = max(1, min(len(prompts), num_threads))
+            for i in tqdm(range(0, len(prompts), chunk), desc="Generating creative pieces"):
+                sub_prompts = prompts[i:i+chunk]
+                sub_task_ids = task_ids[i:i+chunk]
                 try:
-                    future.result()
+                    outputs = test_model_client.generate_many(sub_prompts, temperature=0.7, max_tokens=4000)
                 except Exception as e:
-                    logging.error(f"An error occurred during generation future execution: {e}", exc_info=True)
+                    logging.error(f"Batch generate failed for slice {i}:{i+chunk}: {e}", exc_info=True)
+                    # fall back to per-item using single-generate
+                    outputs = []
+                    for p in sub_prompts:
+                        try:
+                            outputs.append(test_model_client.generate(prompt=p, temperature=0.7, max_tokens=4000))
+                        except Exception as e2:
+                            outputs.append(f"[ERROR] {e2}")
+
+                # persist results
+                for tid, text in zip(sub_task_ids, outputs):
+                    if isinstance(text, str) and not text.startswith("[ERROR]") and len(text.strip()) >= 500:
+                        db.update_task(tid, {"model_response": text.strip(), "status": "generated", "error_message": None})
+                    else:
+                        db.update_task(tid, {"status": "error", "error_message": str(text) if isinstance(text, str) else "generation error"})
+
+        else:
+            # legacy threaded path
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = []
+                for task in tasks_to_generate:
+                    prompt_obj = creative_prompts[task.prompt_id]
+                    base_prompt = prompt_obj["writing_prompt"]
+                    seed_mods = prompt_obj["seed_modifiers"]
+                    seed_modifier = seed_mods[(task.iteration_index - 1) % len(seed_mods)]
+                    task_controller = CreativeWritingTask(task)
+                    futures.append(executor.submit(task_controller.generate_creative_piece, test_model_client, base_prompt, seed_modifier))
+                for future in tqdm(list(futures), desc="Generating creative pieces"):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logging.error(f"An error occurred during generation future execution: {e}", exc_info=True)
     else:
         logging.info("No tasks require generation.")
+
 
     # --- 4. Judging Phase ---
     logging.info("Starting judging phase...")
