@@ -140,6 +140,10 @@ class InspectAIClient(LLMClient):
         self.model: Optional[Model] = None
         self.max_connections = max_connections
         self.default_temperature = default_temperature
+        if "/" in model_name and not provider:  # if someone passed "vllm/<id>" already
+            provider, model_name = model_name.split("/", 1)
+        self.model_name = model_name
+
         logging.debug(f"Initializing InspectAIClient for {model_name} with provider {provider}")
 
 
@@ -157,7 +161,9 @@ class InspectAIClient(LLMClient):
                     logging.warning(f"vLLM params file not found: {self.vllm_params_file}. Using inspect-ai defaults.")
 
             gen_cfg = GenerateConfig(max_connections=self.max_connections) if self.max_connections else GenerateConfig()
-            self.model = get_model(self.model_name, provider=self.provider, config=gen_cfg)
+            model_str = f"{self.provider}/{self.model_name}"   # e.g., vllm/unsloth/gemma-3-4b-it or hf/Qwen/Qwen2.5-0.5B-Instruct
+            self.model = get_model(model_str, config=gen_cfg)
+
 
 
         return self.model
