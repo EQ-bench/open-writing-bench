@@ -17,6 +17,7 @@ import json
 import requests
 import yaml
 import threading
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
@@ -130,14 +131,39 @@ class OpenAICompatibleClient(LLMClient):
 
 class InspectAIClient(LLMClient):
     """
-    Thin, reusable wrapper around an inspect-ai Model.
-    - Singleton caches Model per (provider_alias, model_name, vllm_params_file).
-    - Maps our provider aliases: {'transformers','hf'} -> 'hf'; 'vllm' -> 'vllm'.
-    - Thread-safe lazy load to avoid N concurrent initializations.
+    Thread-safe, singleton-cached inspect-ai client.
+    - Normalizes providers: {'transformers','hf'} -> 'hf'; 'vllm' -> 'vllm'
+    - Caches Model per (provider, model_name, vllm_params_file)
+    - Runs all async work on one dedicated event loop thread to avoid cross-thread loop binding
     """
-    # module-level cache shared across instances
     _model_cache: Dict[tuple, Model] = {}
     _cache_lock = threading.Lock()
+
+    # one process-wide loop thread
+    _loop: Optional[asyncio.AbstractEventLoop] = None
+    _loop_thread: Optional[threading.Thread] = None
+    _loop_lock = threading.Lock()
+
+    @classmethod
+    def _ensure_loop(cls) -> asyncio.AbstractEventLoop:
+        with cls._loop_lock:
+            if cls._loop and cls._loop.is_running():
+                return cls._loop
+
+            def _loop_runner():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                cls._loop = loop
+                loop.run_forever()
+
+            t = threading.Thread(target=_loop_runner, name="inspect-ai-loop", daemon=True)
+            t.start()
+            cls._loop_thread = t
+
+            # wait until loop is ready
+            while cls._loop is None or not cls._loop.is_running():
+                pass
+            return cls._loop  # type: ignore
 
     def __init__(self, model_name: str, provider: str, vllm_params_file: Optional[str] = None,
                  max_connections: Optional[int] = None,
@@ -147,7 +173,6 @@ class InspectAIClient(LLMClient):
             raise RuntimeError("inspect-ai is not installed. Cannot use vLLM or Transformers providers.")
         super().__init__(model_name, **kwargs)
 
-        # Normalize provider for inspect-ai
         prov = provider.lower().strip()
         if prov in ("transformers", "hf"):
             self.provider = "hf"
@@ -160,28 +185,18 @@ class InspectAIClient(LLMClient):
         self.model: Optional[Model] = None
         self.max_connections = max_connections
         self.default_temperature = default_temperature
-
-        # Allow "provider/model" input too
-        if "/" in model_name and self.provider not in ("vllm", "hf"):
-            # no-op; we already validated provider above
-            pass
         self.model_name = model_name
 
     def _resolve_or_launch_model(self) -> Model:
-        """
-        Returns a cached inspect-ai Model, launching if necessary, with thread-safe singleton semantics.
-        Cache key includes provider + model_name + vllm_params_file (since that affects server args).
-        """
         cache_key = (self.provider, self.model_name, self.vllm_params_file)
 
-        # Fast path
         with self._cache_lock:
             cached = self._model_cache.get(cache_key)
             if cached is not None:
                 self.model = cached
                 return cached
 
-        # Configure vLLM server args if needed (before get_model)
+        # set vLLM server args before first load
         if self.provider == "vllm" and self.vllm_params_file:
             try:
                 if os.path.exists(self.vllm_params_file):
@@ -192,13 +207,9 @@ class InspectAIClient(LLMClient):
             except Exception as e:
                 logging.warning(f"Failed setting VLLM_DEFAULT_SERVER_ARGS: {e}")
 
-        # Build model string for inspect-ai
         model_str = f"{self.provider}/{self.model_name}"
-
-        # Max concurrent HTTP connections to the server (inspect-ai GenerateConfig)
         gen_cfg = GenerateConfig(max_connections=self.max_connections) if self.max_connections else GenerateConfig()
 
-        # Single launch under lock to prevent N parallel loads
         with self._cache_lock:
             cached = self._model_cache.get(cache_key)
             if cached is None:
@@ -216,16 +227,37 @@ class InspectAIClient(LLMClient):
             max_tokens=max_tokens,
         )
         resp = await model.generate(input=prompt, config=cfg)
-        return resp.output.completion
+
+        # Robust extraction across inspect-ai versions
+        # Prefer: resp.output.completion or resp.output.text
+        try:
+            out = getattr(resp, "output", None)
+            if out is not None:
+                if hasattr(out, "completion") and out.completion:
+                    return str(out.completion).strip()
+                if hasattr(out, "text") and out.text:
+                    return str(out.text).strip()
+        except Exception:
+            pass
+
+        # Fallbacks
+        if hasattr(resp, "text") and getattr(resp, "text"):
+            return str(getattr(resp, "text")).strip()
+        if isinstance(resp, dict):
+            # some versions may return dict-like
+            cand = (resp.get("output") or {}).get("completion") or resp.get("text")
+            if cand:
+                return str(cand).strip()
+
+        raise RuntimeError("inspect-ai: could not extract text from ModelOutput")
 
     def generate(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(self._generate_async(prompt, temperature, max_tokens, **kwargs))
+        loop = self._ensure_loop()
+        fut = asyncio.run_coroutine_threadsafe(
+            self._generate_async(prompt, temperature, max_tokens, **kwargs),
+            loop
+        )
+        return fut.result()
 
 
 def get_client(name_or_key: str, client_type: str,
@@ -252,6 +284,7 @@ def get_client(name_or_key: str, client_type: str,
                     vllm_params_file=vllm_params_file,
                     max_connections=(int(os.getenv("INSPECT_MAX_CONNECTIONS")) if os.getenv("INSPECT_MAX_CONNECTIONS") else None),
                 )
+
             else:
                 raise ValueError(f"Unsupported test_provider '{test_provider}'.")
         # Fallback: models.yaml configuration path (legacy)
@@ -278,6 +311,7 @@ def get_client(name_or_key: str, client_type: str,
                 vllm_params_file=vllm_params_file,
                 max_connections=(int(os.getenv("INSPECT_MAX_CONNECTIONS")) if os.getenv("INSPECT_MAX_CONNECTIONS") else None),
             )
+
         else:
             raise ValueError(f"Unsupported provider '{provider}' for test model '{name_or_key}'.")
 
