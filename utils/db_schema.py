@@ -110,3 +110,16 @@ class JudgeModel(Base):
     api_key = Column(String, nullable=True) # Can be null if managed externally (e.g., via env var)
     base_url = Column(String, nullable=False)
     system_prompt = Column(Text, nullable=True)
+
+class RunLog(Base):
+    """Periodic stdout/stderr snapshots for a run, appended by the controller."""
+    __tablename__ = 'run_logs'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_key = Column(String, ForeignKey('runs.run_key'), nullable=False, index=True)
+    ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    stream = Column(String, nullable=False)  # 'stdout' or 'stderr'
+    data = Column(Text, nullable=False)
+
+    __table_args__ = (
+        Index('ix_run_logs_run_key_ts', 'run_key', 'ts'),
+    )
