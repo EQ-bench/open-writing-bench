@@ -11,6 +11,8 @@ import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from utils.logging_setup import setup_logging, get_verbosity
+from utils.db_connector import db
+from utils.pretty_print import print_postrun_displays
 
 
 load_dotenv()
@@ -76,9 +78,17 @@ def main():
     )
 
 
+    
+
+    # Pretty print summary + centered leaderboards (21 rows incl. ours)
+    try:
+        with db.get_session() as session:
+            print_postrun_displays(session, run_key)
+    except Exception as e:
+        logging.warning(f"Pretty print failed: {e}")
+
     logging.info(f"Creative writing benchmark completed. Run key: {run_key}")
     print(f"\nCreative writing benchmark completed. Run key: {run_key}")
-
 
 if __name__ == "__main__":
     main()

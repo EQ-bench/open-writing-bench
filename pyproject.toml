@@ -21,6 +21,8 @@ dependencies = [
   "tqdm>=4.67.1",
   "trueskill>=0.4.5",
   "wordfreq>=3.1.1",
+  "vllm",
+  "transformers"
 ]
 
 [project.scripts]
