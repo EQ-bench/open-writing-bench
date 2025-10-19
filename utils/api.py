@@ -157,7 +157,8 @@ class InspectAIClient(LLMClient):
                     logging.warning(f"vLLM params file not found: {self.vllm_params_file}. Using inspect-ai defaults.")
 
             gen_cfg = GenerateConfig(max_connections=self.max_connections) if self.max_connections else GenerateConfig()
-            self.model = get_model(self.provider, model=self.model_name, config=gen_cfg)
+            self.model = get_model(self.model_name, provider=self.provider, config=gen_cfg)
+
 
         return self.model
 
