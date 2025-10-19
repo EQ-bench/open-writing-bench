@@ -1,6 +1,5 @@
 *.pyc
 .env
-config/judge_model_creds.yaml
 backup
 association_analysis_results.json
 experiments/style_analysis_embeddings

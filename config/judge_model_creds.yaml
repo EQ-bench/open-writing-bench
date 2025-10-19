@@ -1,0 +1,37 @@
+# config/judge_model_creds.yaml
+# Local definitions for judge models. These take precedence over the database.
+
+kimi-k2-0905:
+  model_id: 'moonshotai/kimi-k2-0905'
+  provider: 'openai'
+  api_key: 'env:OPENROUTER_API_KEY' # Special syntax to load from environment
+  base_url: 'https://openrouter.ai/api/v1/chat/completions'
+  system_prompt: ''
+
+glm-4.6:
+  model_id: 'z-ai/glm-4.6'
+  provider: 'openai'
+  api_key: 'env:OPENROUTER_API_KEY' # Special syntax to load from environment
+  base_url: 'https://openrouter.ai/api/v1/chat/completions'
+  system_prompt: ''
+
+grok-4-fast:
+  model_id: 'x-ai/grok-4-fast'
+  provider: 'openai'
+  api_key: 'env:OPENROUTER_API_KEY'
+  base_url: 'https://openrouter.ai/api/v1/chat/completions'
+  system_prompt: ''
+
+gemini-2.5-flash-lite-preview-09-2025:
+  model_id: 'google/gemini-2.5-flash-lite-preview-09-2025'
+  provider: 'openai'
+  api_key: 'env:OPENROUTER_API_KEY'
+  base_url: 'https://openrouter.ai/api/v1/chat/completions'
+  system_prompt: ''
+
+#kimi-k2-0905:
+#  model_id: 'moonshotai/kimi-k2-0905'
+#  provider: 'openai'
+#  api_key: 'env:OPENROUTER_API_KEY' # Special syntax to load from environment
+#  base_url: 'https://openrouter.ai/api/v1/chat/completions'
+#  system_prompt: ''
