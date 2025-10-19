@@ -16,6 +16,7 @@ import logging
 import json
 import requests
 import yaml
+import threading
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
@@ -38,7 +39,7 @@ load_dotenv()
 
 _test_model_configs: Optional[Dict[str, Any]] = None
 
-def _load_test_model_configs(config_file: str = 'models.yaml') -> Dict[str, Any]:
+def _load_test_model_configs(config_file: str = 'config/models.yaml') -> Dict[str, Any]:
     """Loads and caches TEST model provider configurations from a YAML file."""
     global _test_model_configs
     if _test_model_configs is None:
@@ -128,6 +129,16 @@ class OpenAICompatibleClient(LLMClient):
 
 
 class InspectAIClient(LLMClient):
+    """
+    Thin, reusable wrapper around an inspect-ai Model.
+    - Singleton caches Model per (provider_alias, model_name, vllm_params_file).
+    - Maps our provider aliases: {'transformers','hf'} -> 'hf'; 'vllm' -> 'vllm'.
+    - Thread-safe lazy load to avoid N concurrent initializations.
+    """
+    # module-level cache shared across instances
+    _model_cache: Dict[tuple, Model] = {}
+    _cache_lock = threading.Lock()
+
     def __init__(self, model_name: str, provider: str, vllm_params_file: Optional[str] = None,
                  max_connections: Optional[int] = None,
                  default_temperature: float = 0.7,
@@ -135,63 +146,87 @@ class InspectAIClient(LLMClient):
         if not INSPECT_AI_AVAILABLE:
             raise RuntimeError("inspect-ai is not installed. Cannot use vLLM or Transformers providers.")
         super().__init__(model_name, **kwargs)
-        self.provider = provider
+
+        # Normalize provider for inspect-ai
+        prov = provider.lower().strip()
+        if prov in ("transformers", "hf"):
+            self.provider = "hf"
+        elif prov == "vllm":
+            self.provider = "vllm"
+        else:
+            raise ValueError(f"Unsupported inspect-ai provider '{provider}'. Use 'vllm' or 'transformers/hf'.")
+
         self.vllm_params_file = vllm_params_file
         self.model: Optional[Model] = None
         self.max_connections = max_connections
         self.default_temperature = default_temperature
-        if "/" in model_name and not provider:  # if someone passed "vllm/<id>" already
-            provider, model_name = model_name.split("/", 1)
+
+        # Allow "provider/model" input too
+        if "/" in model_name and self.provider not in ("vllm", "hf"):
+            # no-op; we already validated provider above
+            pass
         self.model_name = model_name
 
-        logging.debug(f"Initializing InspectAIClient for {model_name} with provider {provider}")
+    def _resolve_or_launch_model(self) -> Model:
+        """
+        Returns a cached inspect-ai Model, launching if necessary, with thread-safe singleton semantics.
+        Cache key includes provider + model_name + vllm_params_file (since that affects server args).
+        """
+        cache_key = (self.provider, self.model_name, self.vllm_params_file)
 
+        # Fast path
+        with self._cache_lock:
+            cached = self._model_cache.get(cache_key)
+            if cached is not None:
+                self.model = cached
+                return cached
 
-    def _get_model(self) -> Model:
-        if self.model is None:
-            logging.info(f"Loading inspect-ai model: {self.model_name} (provider: {self.provider})")
-            # For vLLM, inspect-ai automatically reads VLLM_DEFAULT_SERVER_ARGS.
-            # We set this env var to point to our YAML config file.
-            if self.provider == 'vllm' and self.vllm_params_file:
+        # Configure vLLM server args if needed (before get_model)
+        if self.provider == "vllm" and self.vllm_params_file:
+            try:
                 if os.path.exists(self.vllm_params_file):
-                    # This is the mechanism to pass params to the auto-launched server
-                    os.environ['VLLM_DEFAULT_SERVER_ARGS'] = json.dumps({"config": self.vllm_params_file})
-                    logging.info(f"Set VLLM_DEFAULT_SERVER_ARGS to use config: {self.vllm_params_file}")
+                    os.environ["VLLM_DEFAULT_SERVER_ARGS"] = json.dumps({"config": self.vllm_params_file})
+                    logging.info(f"VLLM_DEFAULT_SERVER_ARGS -> {self.vllm_params_file}")
                 else:
                     logging.warning(f"vLLM params file not found: {self.vllm_params_file}. Using inspect-ai defaults.")
+            except Exception as e:
+                logging.warning(f"Failed setting VLLM_DEFAULT_SERVER_ARGS: {e}")
 
-            gen_cfg = GenerateConfig(max_connections=self.max_connections) if self.max_connections else GenerateConfig()
-            model_str = f"{self.provider}/{self.model_name}"   # e.g., vllm/unsloth/gemma-3-4b-it or hf/Qwen/Qwen2.5-0.5B-Instruct
-            self.model = get_model(model_str, config=gen_cfg)
+        # Build model string for inspect-ai
+        model_str = f"{self.provider}/{self.model_name}"
 
+        # Max concurrent HTTP connections to the server (inspect-ai GenerateConfig)
+        gen_cfg = GenerateConfig(max_connections=self.max_connections) if self.max_connections else GenerateConfig()
 
-
-        return self.model
+        # Single launch under lock to prevent N parallel loads
+        with self._cache_lock:
+            cached = self._model_cache.get(cache_key)
+            if cached is None:
+                logging.info(f"Loading inspect-ai model: {model_str}")
+                m = get_model(model_str, config=gen_cfg)
+                self._model_cache[cache_key] = m
+                cached = m
+            self.model = cached
+            return cached
 
     async def _generate_async(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
-        model = self._get_model()
-        # inspect-ai uses 'max_new_tokens' for its generate function
+        model = self._resolve_or_launch_model()
         cfg = GenerateConfig(
             temperature=temperature if temperature is not None else self.default_temperature,
             max_tokens=max_tokens,
         )
-        response = await model.generate(input=prompt, config=cfg)
-
-        return response.output.completion
+        resp = await model.generate(input=prompt, config=cfg)
+        return resp.output.completion
 
     def generate(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
         import asyncio
-        # inspect-ai is async, so we run it in an event loop.
         try:
-            # Use existing event loop if available (e.g., in a Jupyter notebook)
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+        return loop.run_until_complete(self._generate_async(prompt, temperature, max_tokens, **kwargs))
 
-        return loop.run_until_complete(
-            self._generate_async(prompt, temperature, max_tokens, **kwargs)
-        )
 
 def get_client(name_or_key: str, client_type: str,
                vllm_params_file: Optional[str] = None,
@@ -208,15 +243,14 @@ def get_client(name_or_key: str, client_type: str,
                 if not api_key or not base_url:
                     raise ValueError("TEST_API_KEY or TEST_API_URL is not set in environment for test provider 'openai'.")
                 return OpenAICompatibleClient(name_or_key, api_key, base_url)
-            elif test_provider in ('vllm', 'transformers'):
+            elif test_provider in ('vllm', 'transformers', 'hf'):
                 if not INSPECT_AI_AVAILABLE:
                     raise RuntimeError("inspect-ai is required for vllm/transformers providers.")
-                # threads from CLI is your intended concurrency; feed it as max_connections
                 return InspectAIClient(
                     name_or_key,
-                    provider=test_provider,
+                    provider=('hf' if test_provider in ('transformers', 'hf') else 'vllm'),
                     vllm_params_file=vllm_params_file,
-                    max_connections=os.getenv("INSPECT_MAX_CONNECTIONS") and int(os.getenv("INSPECT_MAX_CONNECTIONS")) or None
+                    max_connections=(int(os.getenv("INSPECT_MAX_CONNECTIONS")) if os.getenv("INSPECT_MAX_CONNECTIONS") else None),
                 )
             else:
                 raise ValueError(f"Unsupported test_provider '{test_provider}'.")
@@ -237,10 +271,10 @@ def get_client(name_or_key: str, client_type: str,
             if not api_key or not base_url:
                 raise ValueError(f"API key or URL environment variable not set for model {name_or_key}")
             return OpenAICompatibleClient(name_or_key, api_key, base_url)
-        elif provider in ['vllm', 'transformers']:
+        elif provider in ['vllm', 'transformers', 'hf']:
             return InspectAIClient(
                 name_or_key,
-                provider,
+                provider=('hf' if provider in ('transformers', 'hf') else 'vllm'),
                 vllm_params_file=vllm_params_file,
                 max_connections=(int(os.getenv("INSPECT_MAX_CONNECTIONS")) if os.getenv("INSPECT_MAX_CONNECTIONS") else None),
             )
