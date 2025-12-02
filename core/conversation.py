@@ -63,7 +63,7 @@ class CreativeWritingTask:
                 response = test_model_client.generate(
                     prompt=prompt,
                     temperature=0.7,
-                    max_tokens=4000,
+                    max_tokens=16000,
                     min_p=0.1
                 )
 
@@ -241,7 +241,7 @@ class CreativeWritingTask:
                     response = test_model_client.generate(
                         prompt=prompt,
                         temperature=0.7,
-                        max_tokens=6000 if turn["turn_type"] == "planning" else 4000,
+                        max_tokens=16000 if turn["turn_type"] == "planning" else 16000,
                         min_p=0.1
                     )
 
