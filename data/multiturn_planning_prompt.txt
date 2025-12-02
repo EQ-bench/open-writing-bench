@@ -21,18 +21,12 @@ Brainstorm ideas for characters, plot, tone, story beats, and pacing over the {n
 
 # Reflection
 
-Reflect on what works and doesn't work in these ideas. The purpose of this reflection is to narrow in on what you think will work best to make a piece that is: a) compelling, and b) fits the prompt requirements. Consider trade-offs between different approaches.
+Reflect on what works and doesn't work in these ideas. The purpose of this reflection is to narrow in on what you think will work best to make a piece that is: a) compelling, and b) fits the prompt requirements.
 
-# Chapter-by-Chapter Plan
-
-Write a detailed plan for each chapter:
+# Chapter Plan
 
 ## Chapter 1
-- Main events/scenes
-- Character development goals
-- Emotional arc for this chapter
-- Key imagery or sensory details to include
-- How it sets up subsequent chapters
+<your concise plan>
 
 ## Chapter 2
 [Continue for each chapter through Chapter {n_chapters}]
@@ -45,6 +39,4 @@ For each major character (at least 2-3 characters), provide:
 - Background: Brief backstory and current situation
 - Personality: Key traits, quirks, speech patterns
 - Motivation: What drives them in this story
-- Arc: How they change over the course of the narrative
 - Voice: How they speak, think, and perceive the world (include a sample line of dialogue)
-- Relationships: How they relate to other characters

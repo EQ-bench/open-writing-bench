@@ -140,7 +140,8 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
         logging.error(f"[Judge-CW] Writing prompt for raw_prompt_id '{raw_prompt_id}' (from item_id '{prompt_id}') not found.")
         return {"error": f"Writing prompt for {raw_prompt_id} not found"}
 
-    writing_prompt_content = writing_prompts[raw_prompt_id]["writing_prompt"]
+    prompt_obj = writing_prompts[raw_prompt_id]
+    writing_prompt_content = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
 
     final_prompt = pairwise_prompt_template.replace("{writing_prompt}", writing_prompt_content)
     final_prompt = final_prompt.replace("{model_a_analysis}", textA)
