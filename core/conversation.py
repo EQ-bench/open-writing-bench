@@ -224,12 +224,18 @@ class CreativeWritingTask:
             # Build conversation history up to this turn
             messages = self._build_conversation_history(model_responses, turn_idx)
 
+            # Format messages into a single prompt string for the API
+            prompt = self._format_messages_as_prompt(messages)
+
+            # Debug: print the prompt being sent
+            print(f"\n{'='*60}\nTask {self.db_task.id} Turn {turn_idx} - Prompt:\n{prompt[:500]}...\n{'='*60}\n")
+
             # Generate with retries
             success = False
             for attempt in range(1, max_retries + 1):
                 try:
                     response = test_model_client.generate(
-                        messages=messages,
+                        prompt=prompt,
                         temperature=0.7,
                         max_tokens=6000 if turn["turn_type"] == "planning" else 4000,
                         min_p=0.1
@@ -313,6 +319,33 @@ class CreativeWritingTask:
         messages.append({"role": "user", "content": model_responses[current_turn_idx]["user_prompt"]})
 
         return messages
+
+    def _format_messages_as_prompt(self, messages: List[Dict[str, str]]) -> str:
+        """
+        Format a list of message dictionaries into a single prompt string.
+
+        For multi-turn conversations, this creates a formatted prompt that
+        includes the conversation history with clear role markers.
+
+        Args:
+            messages: List of {"role": "user"|"assistant", "content": str}
+
+        Returns:
+            Formatted prompt string
+        """
+        parts = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "user":
+                parts.append(f"User:\n{content}")
+            elif role == "assistant":
+                parts.append(f"Assistant:\n{content}")
+
+        # Add a final "Assistant:" to prompt the model to continue
+        parts.append("Assistant:")
+
+        return "\n\n".join(parts)
 
     def get_chapters_text(self) -> List[str]:
         """
