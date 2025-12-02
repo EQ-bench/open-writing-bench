@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from utils.db_connector import db
-from utils.db_schema import Task, JudgeResult, Run
+from utils.db_schema import Task, JudgeResult
 from utils.api import get_client
-from utils.truncation import truncate_text
+from utils.truncation import truncate_text, truncate_chapters_for_judging
 from core.scoring import parse_judge_scores_creative
 
 # Multi-turn configuration
@@ -384,9 +384,12 @@ class CreativeWritingTask:
 
         return None
 
-    def get_full_story_text(self) -> str:
+    def get_full_story_text(self, max_chars_per_chapter: int = 0) -> str:
         """
         Get the full story text (all chapters combined, no planning).
+
+        Args:
+            max_chars_per_chapter: If > 0, truncate each chapter to this length
 
         Returns:
             Combined chapter text with chapter markers
@@ -394,6 +397,12 @@ class CreativeWritingTask:
         chapters = self.get_chapters_text()
         if not chapters:
             return ""
+
+        # Truncate each chapter if max_chars specified
+        if max_chars_per_chapter > 0:
+            chapters = truncate_chapters_for_judging(
+                chapters, max_chars_per_chapter, mode="middle"
+            )
 
         parts = []
         for i, chapter in enumerate(chapters, 1):
@@ -412,18 +421,17 @@ class CreativeWritingTask:
         creative_writing_criteria: List[str],
         negative_criteria: List[str],
         base_prompt: str,
-        max_chars_for_judging: int = 8000,
-        truncation_mode: str = "middle"
+        max_chars_per_chapter: int = 3200
     ):
         """
         Judges the generated piece with an ensemble of models.
 
         For multi-turn tasks:
         - Only judges the chapters (excludes planning)
-        - Uses middle truncation by default
+        - Truncates each chapter individually (middle truncation)
 
         For single-turn tasks:
-        - Uses end truncation by default
+        - Truncates the response (middle truncation)
 
         Fetches the model response from the database and saves all individual
         judge results back to the database.
@@ -436,20 +444,19 @@ class CreativeWritingTask:
         is_multiturn = self.db_task.model_responses is not None and len(self.db_task.model_responses) > 0
 
         if is_multiturn:
-            # Multi-turn: get only chapters (exclude planning)
-            model_text = self.get_full_story_text()
-            truncation_mode = "middle"
+            # Multi-turn: get only chapters (exclude planning), truncated per-chapter
+            model_text_truncated = self.get_full_story_text(max_chars_per_chapter=max_chars_per_chapter)
         else:
-            # Single-turn: use legacy model_response
+            # Single-turn: use legacy model_response, truncated
             model_text = self.db_task.model_response
-            truncation_mode = "end"
+            if model_text:
+                model_text_truncated = truncate_text(model_text, max_chars_per_chapter, mode="middle")
+            else:
+                model_text_truncated = ""
 
-        if not model_text:
+        if not model_text_truncated:
             db.update_task(self.db_task.id, {"status": "error", "error_message": "Cannot judge empty generation"})
             return
-
-        # Apply truncation for judging
-        model_text_truncated = truncate_text(model_text, max_chars_for_judging, mode=truncation_mode)
 
         db.update_task(self.db_task.id, {"status": "judging"})
 

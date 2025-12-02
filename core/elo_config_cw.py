@@ -5,20 +5,15 @@ import random
 ##############################################
 # CW Specific Constants
 ##############################################
-# Max length for text passed to pairwise judge (from original CW elo.py)
-LENGTH_TRUNCATION_CHARS = 4500
+# Max length per chapter for text passed to pairwise judge
+LENGTH_TRUNCATION_CHARS_PER_CHAPTER = 3200
 
 # Prompt IDs to ignore for ELO (from original CW elo.py)
 # Note: Original CW file had this defined twice with different values.
 # I'm using the second definition as it appeared later. Please verify which one is correct.
 IGNORE_PROMPTS_FOR_ELO = [
-    "5", "16", "20", "21", "26", "28", "30"
+
 ]
-# Example of the first definition if needed:
-# IGNORE_PROMPTS_FOR_ELO = [
-# "119","45","124","123","125","208","212","210",
-# "197","207","209","215","200","196","216","217"
-# ]
 
 
 ##############################################

@@ -16,7 +16,7 @@ from collections import defaultdict
 from utils.db_connector import db
 from utils.db_schema import Task, JudgeResult, EloComparison, EloRating, Run
 from utils.api import get_client
-from utils.truncation import truncate_text
+from utils.truncation import truncate_text, truncate_chapters_for_judging
 
 # Import from new CW-specific ELO modules
 from .elo_config_cw import (
@@ -28,7 +28,7 @@ from .elo_config_cw import (
     RANK_WINDOW,
     CW_ANCHOR_MODELS,
     # Constants from original CW elo.py that are now in elo_config_cw
-    LENGTH_TRUNCATION_CHARS,
+    LENGTH_TRUNCATION_CHARS_PER_CHAPTER,
     TS_SIGMA
 )
 from .elo_helpers_cw import (
@@ -55,15 +55,17 @@ def invert_if_negative(metric: str, val: float, neg_list: List[str]) -> float:
     return val
 
 
-def get_task_text_for_elo(task: Task) -> Optional[str]:
+def get_task_text_for_elo(task: Task, max_chars_per_chapter: int = LENGTH_TRUNCATION_CHARS_PER_CHAPTER) -> Optional[str]:
     """
     Extract the appropriate text from a task for ELO comparison.
 
-    For multi-turn tasks: Returns combined chapter text (excludes planning)
-    For single-turn tasks: Returns model_response
+    For multi-turn tasks: Returns combined chapter text (excludes planning),
+                          with each chapter truncated individually
+    For single-turn tasks: Returns model_response (truncated)
 
     Args:
         task: The Task object
+        max_chars_per_chapter: Max characters per chapter for truncation
 
     Returns:
         The text to use for ELO comparison, or None if not available
@@ -77,13 +79,19 @@ def get_task_text_for_elo(task: Task) -> Optional[str]:
                 chapters.append(turn["assistant_response"])
 
         if chapters:
+            # Truncate each chapter individually
+            truncated_chapters = truncate_chapters_for_judging(
+                chapters, max_chars_per_chapter, mode="middle"
+            )
             parts = []
-            for i, chapter in enumerate(chapters, 1):
+            for i, chapter in enumerate(truncated_chapters, 1):
                 parts.append(f"# Chapter {i}\n\n{chapter}")
             return "\n\n---\n\n".join(parts)
 
-    # Single-turn or fallback: use model_response
-    return task.model_response
+    # Single-turn or fallback: use model_response (truncated)
+    if task.model_response:
+        return truncate_text(task.model_response, max_chars_per_chapter, mode="middle")
+    return None
 
 def deduplicate_comparisons_cw(comps: List[Dict[str, Any]], model_name_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     """
@@ -196,9 +204,9 @@ def _judge_item_iteration_pairs_in_parallel_cw(
         future_to_matchup_info: Dict[Any, Dict[str, Any]] = {}
 
         for item_id, test_iter_id, test_text, test_score, neigh_iter_id, neigh_text, neigh_score in matchups_to_judge:
-            # Truncate texts using middle truncation for better representation
-            textA = truncate_text(test_text, LENGTH_TRUNCATION_CHARS, mode="middle")
-            textB = truncate_text(neigh_text, LENGTH_TRUNCATION_CHARS, mode="middle")
+            # Text is already truncated per-chapter by get_task_text_for_elo
+            textA = test_text
+            textB = neigh_text
 
             match_info_base = {
                 "item_id": item_id,
