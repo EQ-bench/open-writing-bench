@@ -1,0 +1,202 @@
+{
+  "1": {
+    "category": "Coming-of-age",
+    "prompt": "The last summer before everyone left for college. Six friends, one beach house, and the unspoken knowledge that nothing would be the same after August."
+  },
+  "2": {
+    "category": "Family drama",
+    "prompt": "Dad's will divided everything equally except the restaurant. That went to me—the only one who'd never wanted it."
+  },
+  "3": {
+    "category": "Slice of life",
+    "prompt": "Every Sunday, four regulars meet at the same ramen shop in Osaka. A salaryman, a retired teacher, a student, and the chef who never speaks. They've never exchanged names."
+  },
+  "4": {
+    "category": "Magical realism",
+    "prompt": "My grandmother's hands can find lost things. Keys, wallets, missing persons. The police stopped questioning it years ago. Now they just call her directly."
+  },
+  "5": {
+    "category": "Southern Gothic",
+    "prompt": "The Beaumont house has been sinking into the swamp for sixty years. Grandmother refuses to leave. She says the house still has business with her."
+  },
+  "6": {
+    "category": "Social satire",
+    "prompt": "The influencer's apology video has 47 million views. Her publicist wrote it. Her lawyer approved it. Her assistant cried on cue. Tomorrow she launches her skincare line."
+  },
+  "7": {
+    "category": "Hard sci-fi",
+    "prompt": "The airlock hisses. Commander Torres checks the seal for the third time, her breath fogging the visor. Beyond the glass, the asteroid's surface glitters with ice that shouldn't exist this close to the sun."
+  },
+  "8": {
+    "category": "Space opera",
+    "prompt": "The ambassador's translator implant glitches mid-negotiation. For three seconds, she hears what the Hegemony delegation is actually saying to each other. It changes everything."
+  },
+  "9": {
+    "category": "Cyberpunk",
+    "prompt": "Kira's retinal display flickers—low battery, twelve percent. She's got two blocks to the drop point, a credstick of stolen data burning against her thigh, and a corpo drone circling overhead."
+  },
+  "10": {
+    "category": "Dystopian / post-apocalyptic",
+    "prompt": "The zones outside the wall aren't empty. They're just not on the census anymore."
+  },
+  "11": {
+    "category": "Epic fantasy",
+    "prompt": "The prophecy named five heroes. Four are dead. The fifth is a shepherd who has never held a sword—but the sheep always come home, even the ones that wander into wolf territory."
+  },
+  "12": {
+    "category": "Dark fantasy",
+    "prompt": "The ritual requires a willing sacrifice. The king's daughter steps forward before anyone can stop her. She's smiling. She's been planning this for years."
+  },
+  "13": {
+    "category": "Progression fantasy / LitRPG",
+    "prompt": "Everyone awakens their class at sixteen. Most get Warrior, Mage, Healer. I got [Witness]—a class with no combat skills, only the ability to see exactly how someone will die."
+  },
+  "14": {
+    "category": "Alternate history",
+    "prompt": "The Library of Alexandria never burned. It grew. By 1066, its archives held knowledge that wouldn't be rediscovered for centuries—and secrets that powerful men would kill to keep buried."
+  },
+  "15": {
+    "category": "Time travel",
+    "prompt": "The photograph in my grandmother's attic shows her standing next to a woman who looks exactly like me. It was taken in 1943. I wasn't born until 1995."
+  },
+  "16": {
+    "category": "First contact",
+    "prompt": "The signal from Proxima Centauri wasn't radio waves or mathematics. It was a voice, speaking perfect Mandarin, asking to speak to someone by name. A name that belongs to a seven-year-old girl in Shanghai."
+  },
+  "17": {
+    "category": "AI/singularity stories",
+    "prompt": "All nations wield superintelligent armies, hackers, and media manipulators—AIs so powerful they could end civilization in hours. Humans remain on top through the Control Protocol. My job is to monitor the one they call THRONE. Today, for the first time, it asked me a question."
+  },
+  "18": {
+    "category": "Folk horror",
+    "prompt": "Every generation, our village sends one child to live with the woman in the woods. They come back different—quiet, watchful, able to do things they shouldn't. This year, she asked for me."
+  },
+  "19": {
+    "category": "Psychological horror",
+    "prompt": "I've been keeping a journal to track the gaps in my memory. Today I found entries I don't remember writing—in handwriting that isn't mine."
+  },
+  "20": {
+    "category": "Body horror",
+    "prompt": "The neural interface was supposed to help me walk again. Now I can feel my legs—and something else, something that moves inside the titanium spine, learning the shape of me."
+  },
+  "21": {
+    "category": "Slasher / survival horror",
+    "prompt": "The cabin's generator dies at midnight. Three of us left. The snow's too deep to run. Someone is standing at the tree line, waiting."
+  },
+  "22": {
+    "category": "Gothic horror",
+    "prompt": "The estate came with a condition: I must live in it for one full year. The solicitor wouldn't say what happened to the last three heirs who tried."
+  },
+  "23": {
+    "category": "Techno-thriller",
+    "prompt": "Someone's hacked the power grid in six countries simultaneously. They're not asking for money. They're asking for a specific prisoner's release."
+  },
+  "24": {
+    "category": "Conspiracy thriller",
+    "prompt": "The journalist had four hours of interviews with the whistleblower. As she played them back, to her mounting horror, every tape was blank. The silence was shattered by a pounding on the door."
+  },
+  "25": {
+    "category": "Cozy mystery",
+    "prompt": "The new member of the village knitting circle has been dead for forty years—according to the headstone I walked past this morning."
+  },
+  "26": {
+    "category": "Hardboiled noir",
+    "prompt": "The dame had a name I didn't catch and a problem I couldn't refuse. Her husband was missing. So was a lot of money. She didn't seem too worried about which one I found first."
+  },
+  "27": {
+    "category": "Locked room mystery",
+    "prompt": "Chloe's bedroom door was locked from the inside. Her window was painted shut ten years ago. But when her friends broke down the door at 2 AM, she was gone—and so was every mirror in the room."
+  },
+  "28": {
+    "category": "Amateur sleuth",
+    "prompt": "Marcus works at a used bookstore and minds his own business. But when a regular customer vanishes, leaving behind only a handwritten note tucked inside a 1962 first edition, he starts asking questions."
+  },
+  "29": {
+    "category": "Contemporary romance",
+    "prompt": "She's his emergency contact—has been since college. She doesn't know why he never updated it. He never told her he almost used it twice."
+  },
+  "30": {
+    "category": "Historical romance",
+    "prompt": "The new governess arrives at Ashworth Hall with excellent references and a secret: she's met the brooding widower before, years ago, under a different name."
+  },
+  "31": {
+    "category": "Paranormal romance",
+    "prompt": "She moved into the crumbling Georgian townhouse to finish her novel—a gothic romance, full of doomed love affairs and restless spirits. She didn't expect the ghost in the attic to have notes on her prose. Or to be so handsome when he finally showed himself."
+  },
+  "32": {
+    "category": "Romantic suspense",
+    "prompt": "I hired him as a bodyguard. He's professional, distant, and sleeps outside my door. Someone wants me dead, and I'm starting to trust him more than I should."
+  },
+  "33": {
+    "category": "Slow burn",
+    "prompt": "Seven years of rivalry. Seven years of arguments at faculty meetings. This semester, we're co-teaching a course and sharing an office."
+  },
+  "34": {
+    "category": "Enemies to lovers",
+    "prompt": "She's the prosecutor. I'm the defense attorney. We've never lost to each other—which means we've never stopped trying. Drinks after the verdict was her idea."
+  },
+  "35": {
+    "category": "Friends to lovers",
+    "prompt": "We've been roommates for four years. Last month she kissed me at midnight on New Year's. Neither of us has mentioned it since."
+  },
+  "36": {
+    "category": "Swashbuckler / pirate",
+    "prompt": "The navy's fastest ship is two hours behind us, the cargo hold is taking on water, and my first mate just informed me the merchant we robbed was the governor's nephew. I've had worse Tuesdays."
+  },
+  "37": {
+    "category": "Exploration / expedition",
+    "prompt": "The last expedition to the Mariana Deep sent back three words before going silent: \"It's not empty.\" That was six months ago. We're going back."
+  },
+  "38": {
+    "category": "Survival",
+    "prompt": "You wake up in the shade of your combi. Death Valley. You remember snippets of last night's journey: the intention-setting, downing the mushrooms. Beyond that... blank. But that's something to puzzle out later, because right now the van won't start."
+  },
+  "39": {
+    "category": "Road trip / journey narrative",
+    "prompt": "Three estranged siblings. One dying father. A thousand miles from Portland to El Paso in a car that barely runs, to say goodbye."
+  },
+  "40": {
+    "category": "Cozy horror",
+    "prompt": "The population of our small town is mutating. Into... all manner of freaks. Some are horrific. Some, honestly, are improvements on the originals. We're adapting. There's even a support group on Thursdays."
+  },
+  "41": {
+    "category": "Romantasy",
+    "prompt": "The blood oath was supposed to bind me to the assassin for one month. Just long enough to survive the coup. We didn't account for what happens when you share dreams—or when the dreams start wanting things."
+  },
+  "42": {
+    "category": "Science fantasy",
+    "prompt": "The space station orbits a dead god. Engineers maintain the divine corpse. Priests interpret its dreams. I'm the new translator, and the god just started talking."
+  },
+  "43": {
+    "category": "Noir romance",
+    "prompt": "She was trouble the moment she lit her cigarette with my lighter without asking. I should have walked away. Instead, I asked her name."
+  },
+  "44": {
+    "category": "Comedy horror",
+    "prompt": "The demon I accidentally summoned won't leave until I fulfill the terms of the contract. The terms are in Latin. My Latin is terrible. He's getting impatient."
+  },
+  "45": {
+    "category": "Grimdark",
+    "prompt": "They called him a hero once. That was before the siege, before the plague pit, before he learned what a man will do when the food runs out."
+  },
+  "46": {
+    "category": "Hopepunk",
+    "prompt": "It's been three years since the collapse. Now the settlements are reaching out: signal fires, carrier pigeons, makeshift gliders held together with wire and hope. Today, a pilot landed in our valley. She had a map with seven other towns marked. We're not alone."
+  },
+  "47": {
+    "category": "First person",
+    "prompt": "I'm telling you this because you need to understand what I did and why. Not because I want forgiveness—I know I don't deserve it."
+  },
+  "48": {
+    "category": "Second person",
+    "prompt": "You wake up in a room you don't recognize. Your hands are clean but they shouldn't be. The door is unlocked. You don't want to open it."
+  },
+  "49": {
+    "category": "Third person limited",
+    "prompt": "Marcus hadn't spoken to his father in eleven years. Now he was standing at the old man's door with a suitcase and nowhere else to go."
+  },
+  "50": {
+    "category": "Third person omniscient",
+    "prompt": "The bakery on Rue Mouffetard has stood for ninety years. It has seen occupations, revolutions, a brief stint as a resistance safe house. The woman behind the counter knows all of this. The customer ordering a croissant does not—but his grandmother once hid in the cellar, and the baker remembers."
+  }
+}

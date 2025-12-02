@@ -1,0 +1,46 @@
+{writing_prompt}
+
+--
+
+Your task is to create a comprehensive writing plan for this prompt. The scope will be a short story, written over {n_chapters} chapters. Each chapter will be approximately 1000 words so plan accordingly for this scope.
+
+Your plan should be thorough and follow this exact format:
+
+# Brainstorming
+
+Brainstorm ideas for characters, plot, tone, story beats, and pacing over the {n_chapters} chapters. The purpose of brainstorming is to cast a wide net of ideas, not to settle on any specific direction. Think about various ways you could take the prompt. Consider:
+- Multiple potential character archetypes and their motivations
+- Different plot structures and narrative arcs
+- Tonal choices (dark, humorous, melancholic, hopeful, etc.)
+- Possible themes and subtext
+- Story beats and their placement across chapters
+
+# Reflection
+
+Reflect on what works and doesn't work in these ideas. The purpose of this reflection is to narrow in on what you think will work best to make a piece that is: a) compelling, and b) fits the prompt requirements. Consider trade-offs between different approaches.
+
+# Chapter-by-Chapter Plan
+
+Write a detailed plan for each chapter:
+
+## Chapter 1
+- Main events/scenes
+- Character development goals
+- Emotional arc for this chapter
+- Key imagery or sensory details to include
+- How it sets up subsequent chapters
+
+## Chapter 2
+[Continue for each chapter through Chapter {n_chapters}]
+
+# Character Profiles
+
+For each major character (at least 2-3 characters), provide:
+
+## [Character Name]
+- Background: Brief backstory and current situation
+- Personality: Key traits, quirks, speech patterns
+- Motivation: What drives them in this story
+- Arc: How they change over the course of the narrative
+- Voice: How they speak, think, and perceive the world (include a sample line of dialogue)
+- Relationships: How they relate to other characters

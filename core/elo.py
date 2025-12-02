@@ -16,6 +16,7 @@ from collections import defaultdict
 from utils.db_connector import db
 from utils.db_schema import Task, JudgeResult, EloComparison, EloRating, Run
 from utils.api import get_client
+from utils.truncation import truncate_text
 
 # Import from new CW-specific ELO modules
 from .elo_config_cw import (
@@ -52,6 +53,37 @@ def invert_if_negative(metric: str, val: float, neg_list: List[str]) -> float:
     if metric in neg_list:
         return 20.0 - val # Assuming 0-10 scale, so 20.0 makes sense for 0-20 scale. Adjust if scale is different.
     return val
+
+
+def get_task_text_for_elo(task: Task) -> Optional[str]:
+    """
+    Extract the appropriate text from a task for ELO comparison.
+
+    For multi-turn tasks: Returns combined chapter text (excludes planning)
+    For single-turn tasks: Returns model_response
+
+    Args:
+        task: The Task object
+
+    Returns:
+        The text to use for ELO comparison, or None if not available
+    """
+    # Check if this is a multi-turn task
+    if task.model_responses and len(task.model_responses) > 0:
+        # Multi-turn: combine chapters only (exclude planning)
+        chapters = []
+        for turn in task.model_responses:
+            if turn.get("turn_type") == "chapter" and turn.get("assistant_response"):
+                chapters.append(turn["assistant_response"])
+
+        if chapters:
+            parts = []
+            for i, chapter in enumerate(chapters, 1):
+                parts.append(f"# Chapter {i}\n\n{chapter}")
+            return "\n\n---\n\n".join(parts)
+
+    # Single-turn or fallback: use model_response
+    return task.model_response
 
 def deduplicate_comparisons_cw(comps: List[Dict[str, Any]], model_name_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     """
@@ -163,9 +195,9 @@ def _judge_item_iteration_pairs_in_parallel_cw(
         future_to_matchup_info: Dict[Any, Dict[str, Any]] = {}
 
         for item_id, test_iter_id, test_text, test_score, neigh_iter_id, neigh_text, neigh_score in matchups_to_judge:
-            # Truncate texts
-            textA = test_text[:LENGTH_TRUNCATION_CHARS]
-            textB = neigh_text[:LENGTH_TRUNCATION_CHARS]
+            # Truncate texts using middle truncation for better representation
+            textA = truncate_text(test_text, LENGTH_TRUNCATION_CHARS, mode="middle")
+            textB = truncate_text(neigh_text, LENGTH_TRUNCATION_CHARS, mode="middle")
 
             match_info_base = {
                 "item_id": item_id,
@@ -527,9 +559,10 @@ def run_elo_analysis_creative(
                     "creative_writing_rubric_score_iter": 0.0
                 }
             
-            # Store task data
-            if task.model_response:
-                existing_analyses[model_name]["iterations"][iter_id]["items"][task.prompt_id] = task.model_response
+            # Store task data - use helper to handle both single-turn and multi-turn tasks
+            task_text = get_task_text_for_elo(task)
+            if task_text:
+                existing_analyses[model_name]["iterations"][iter_id]["items"][task.prompt_id] = task_text
             
             # Get aggregated score
             if task.aggregated_scores:

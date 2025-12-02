@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--threads", type=int, default=4, help="Number of parallel threads.")
     parser.add_argument("--verbosity", choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'], default="INFO")
     parser.add_argument("--redo-judging", action="store_true", default=False, help="Re-run the judge step on existing items.")
-    parser.add_argument("--creative-prompts-file", default="data/creative_writing_prompts_v3.json")
+    parser.add_argument("--creative-prompts-file", default="data/open-writing-bench-prompts.json")
     parser.add_argument("--criteria-file", default="data/creative_writing_criteria.txt")
     parser.add_argument("--negative-criteria-file", default="data/negative_criteria.txt")
     parser.add_argument("--judge-prompt-file", default="data/creative_writing_judging_prompt.txt")

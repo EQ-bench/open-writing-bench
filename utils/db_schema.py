@@ -32,16 +32,38 @@ class Run(Base):
     elo_comparisons = relationship("EloComparison", back_populates="run", cascade="all, delete-orphan")
 
 class Task(Base):
-    """Represents a single creative writing task for a specific prompt and iteration."""
+    """Represents a single creative writing task for a specific prompt and iteration.
+
+    For multi-turn writing tasks, model_responses stores a list of turn dictionaries:
+    [
+        {
+            "turn_type": "planning" | "chapter",
+            "turn_index": 0,  # 0 for planning, 1-N for chapters
+            "user_prompt": "...",  # The user prompt for this turn
+            "assistant_response": "...",  # The model's response (None if not yet generated)
+            "status": "pending" | "generating" | "generated" | "error",
+            "error": "..." | None,
+            "chapter_number": N | None,  # Only for chapter turns
+        },
+        ...
+    ]
+    """
     __tablename__ = 'tasks'
     id = Column(Integer, primary_key=True)
     run_key = Column(String, ForeignKey('runs.run_key'), nullable=False)
     prompt_id = Column(String, nullable=False)
     iteration_index = Column(Integer, nullable=False)
     status = Column(String, nullable=False, default='initialized', index=True)
+
+    # Legacy single-turn response field (kept for backward compatibility)
     model_response = Column(Text, nullable=True)
+
+    # Multi-turn responses for longform writing tasks
+    # List of dicts with turn_type, turn_index, user_prompt, assistant_response, status, error, chapter_number
+    model_responses = Column(JSON, nullable=True)
+
     error_message = Column(String, nullable=True)
-    
+
     # Stores aggregated scores after ensemble judging
     aggregated_scores = Column(JSON, nullable=True)
 

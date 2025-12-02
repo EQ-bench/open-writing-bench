@@ -22,6 +22,13 @@ grok-4-fast:
   base_url: 'https://openrouter.ai/api/v1/chat/completions'
   system_prompt: ''
 
+grok-4.1-fast:
+  model_id: 'x-ai/grok-4.1-fast:free'
+  provider: 'openai'
+  api_key: 'env:OPENROUTER_API_KEY'
+  base_url: 'https://openrouter.ai/api/v1/chat/completions'
+  system_prompt: ''
+
 gemini-2.5-flash-lite-preview-09-2025:
   model_id: 'google/gemini-2.5-flash-lite-preview-09-2025'
   provider: 'openai'

@@ -7,6 +7,8 @@ This module contains the main `run_eq_bench_creative` function which manages
 the entire lifecycle of a benchmark run using a database backend. It handles
 run initialization, task creation, parallelized generation and judging,
 final scoring, and ELO analysis.
+
+Supports both single-turn (legacy) and multi-turn (longform) generation modes.
 """
 
 import uuid
@@ -21,7 +23,7 @@ from typing import Dict, List, Optional, Any
 from utils.db_connector import db
 from utils.db_schema import Run, Task
 from utils.api import get_client
-from core.conversation import CreativeWritingTask
+from core.conversation import CreativeWritingTask, DEFAULT_NUM_CHAPTERS
 from core.scoring import (
     compute_single_benchmark_score_creative,
     bootstrap_benchmark_stability_creative,
@@ -82,14 +84,35 @@ def run_eq_bench_creative(
     redo_judging: bool,
     iterations: int,
     run_elo: bool,
-    vllm_params_file: Optional[str]
+    vllm_params_file: Optional[str],
+    multiturn: bool = False,
+    num_chapters: int = DEFAULT_NUM_CHAPTERS
 ) -> str:
     """
     Main function to run the creative writing benchmark using the database.
+
+    Args:
+        test_model: Name/ID of the model to test
+        test_provider: Provider for the test model (e.g., 'openai', 'anthropic')
+        judge_models: List of judge model names for ensemble judging
+        num_threads: Number of parallel threads for generation/judging
+        run_id: Optional run ID (generated if not provided)
+        creative_prompts_file: Path to JSON file with writing prompts
+        creative_criteria_file: Path to file with judging criteria
+        negative_criteria_file: Path to file with negative (inverted) criteria
+        judge_prompt_file: Path to judge prompt template
+        redo_judging: If True, re-judge already judged tasks
+        iterations: Number of iterations per prompt
+        run_elo: Whether to run ELO analysis
+        vllm_params_file: Optional path to vLLM parameters
+        multiturn: If True, use multi-turn generation (planning + chapters)
+        num_chapters: Number of chapters for multi-turn mode (default 4)
+
+    Returns:
+        The run_key for this benchmark run
     """
     # --- 1. Initialize Run and Load Assets ---
     run_key = run_id if run_id else str(uuid.uuid4())
-
 
     run_config = {
         "judge_models": judge_models,
@@ -101,6 +124,8 @@ def run_eq_bench_creative(
         "vllm_params_file": vllm_params_file,
         "test_model": test_model,
         "test_provider": test_provider,
+        "multiturn": multiturn,
+        "num_chapters": num_chapters if multiturn else None,
     }
 
     db.get_or_create_run(run_key, test_model, run_config)
@@ -135,7 +160,7 @@ def run_eq_bench_creative(
         logging.info(f"Creating {len(tasks_to_create)} new tasks in the database.")
         db.bulk_insert_tasks(tasks_to_create)
 
-        # --- 3. Generation Phase ---
+    # --- 3. Generation Phase ---
     logging.info("Starting generation phase...")
     tasks_to_generate = db.get_tasks_for_run(run_key, status_filter='initialized')
     if tasks_to_generate:
@@ -143,62 +168,80 @@ def run_eq_bench_creative(
                                vllm_params_file=vllm_params_file,
                                test_provider=test_provider)
 
-        # if the client supports batch, submit in batches; else keep thread pool
-        supports_batch = hasattr(test_model_client, "generate_many")
-
-        if supports_batch:
-            # prepare prompts in original order
-            prompts = []
-            task_ids = []
-            for task in tasks_to_generate:
-                prompt_obj = creative_prompts[task.prompt_id]
-                base_prompt = prompt_obj["writing_prompt"]
-                seed_mods = prompt_obj["seed_modifiers"]
-                seed_modifier = seed_mods[(task.iteration_index - 1) % len(seed_mods)]
-                final_prompt = base_prompt.replace("<SEED>", seed_modifier)
-                prompts.append(final_prompt)
-                task_ids.append(task.id)
-
-            # chunk to avoid giant payloads; reuse args.threads as chunk-size heuristic
-            chunk = max(1, min(len(prompts), num_threads))
-            for i in tqdm(range(0, len(prompts), chunk), desc="Generating creative pieces"):
-                sub_prompts = prompts[i:i+chunk]
-                sub_task_ids = task_ids[i:i+chunk]
-                try:
-                    outputs = test_model_client.generate_many(sub_prompts, temperature=0.7, max_tokens=4000)
-                except Exception as e:
-                    logging.error(f"Batch generate failed for slice {i}:{i+chunk}: {e}", exc_info=True)
-                    # fall back to per-item using single-generate
-                    outputs = []
-                    for p in sub_prompts:
-                        try:
-                            outputs.append(test_model_client.generate(prompt=p, temperature=0.7, max_tokens=4000))
-                        except Exception as e2:
-                            outputs.append(f"[ERROR] {e2}")
-
-                # persist results
-                for tid, text in zip(sub_task_ids, outputs):
-                    if isinstance(text, str) and not text.startswith("[ERROR]") and len(text.strip()) >= 500:
-                        db.update_task(tid, {"model_response": text.strip(), "status": "generated", "error_message": None})
-                    else:
-                        db.update_task(tid, {"status": "error", "error_message": str(text) if isinstance(text, str) else "generation error"})
-
-        else:
-            # legacy threaded path
+        if multiturn:
+            # Multi-turn generation: planning + chapters
+            # Cannot use batch mode since each turn depends on previous turns
+            logging.info(f"Using multi-turn generation with {num_chapters} chapters...")
             with ThreadPoolExecutor(max_workers=num_threads) as executor:
                 futures = []
                 for task in tasks_to_generate:
                     prompt_obj = creative_prompts[task.prompt_id]
-                    base_prompt = prompt_obj["writing_prompt"]
-                    seed_mods = prompt_obj["seed_modifiers"]
-                    seed_modifier = seed_mods[(task.iteration_index - 1) % len(seed_mods)]
+                    prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
                     task_controller = CreativeWritingTask(task)
-                    futures.append(executor.submit(task_controller.generate_creative_piece, test_model_client, base_prompt, seed_modifier))
-                for future in tqdm(list(futures), desc="Generating creative pieces"):
+                    futures.append(executor.submit(
+                        task_controller.generate_multiturn,
+                        test_model_client,
+                        prompt,
+                        num_chapters=num_chapters
+                    ))
+                for future in tqdm(list(futures), desc="Generating multi-turn pieces"):
                     try:
                         future.result()
                     except Exception as e:
-                        logging.error(f"An error occurred during generation future execution: {e}", exc_info=True)
+                        logging.error(f"An error occurred during multi-turn generation: {e}", exc_info=True)
+        else:
+            # Single-turn generation (legacy mode)
+            # if the client supports batch, submit in batches; else keep thread pool
+            supports_batch = hasattr(test_model_client, "generate_many")
+
+            if supports_batch:
+                # prepare prompts in original order
+                prompts = []
+                task_ids = []
+                for task in tasks_to_generate:
+                    prompt_obj = creative_prompts[task.prompt_id]
+                    prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
+                    prompts.append(prompt)
+                    task_ids.append(task.id)
+
+                # chunk to avoid giant payloads; reuse args.threads as chunk-size heuristic
+                chunk = max(1, min(len(prompts), num_threads))
+                for i in tqdm(range(0, len(prompts), chunk), desc="Generating creative pieces"):
+                    sub_prompts = prompts[i:i+chunk]
+                    sub_task_ids = task_ids[i:i+chunk]
+                    try:
+                        outputs = test_model_client.generate_many(sub_prompts, temperature=0.7, max_tokens=4000)
+                    except Exception as e:
+                        logging.error(f"Batch generate failed for slice {i}:{i+chunk}: {e}", exc_info=True)
+                        # fall back to per-item using single-generate
+                        outputs = []
+                        for p in sub_prompts:
+                            try:
+                                outputs.append(test_model_client.generate(prompt=p, temperature=0.7, max_tokens=4000))
+                            except Exception as e2:
+                                outputs.append(f"[ERROR] {e2}")
+
+                    # persist results
+                    for tid, text in zip(sub_task_ids, outputs):
+                        if isinstance(text, str) and not text.startswith("[ERROR]") and len(text.strip()) >= 500:
+                            db.update_task(tid, {"model_response": text.strip(), "status": "generated", "error_message": None})
+                        else:
+                            db.update_task(tid, {"status": "error", "error_message": str(text) if isinstance(text, str) else "generation error"})
+
+            else:
+                # legacy threaded path
+                with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                    futures = []
+                    for task in tasks_to_generate:
+                        prompt_obj = creative_prompts[task.prompt_id]
+                        prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
+                        task_controller = CreativeWritingTask(task)
+                        futures.append(executor.submit(task_controller.generate_creative_piece, test_model_client, prompt))
+                    for future in tqdm(list(futures), desc="Generating creative pieces"):
+                        try:
+                            future.result()
+                        except Exception as e:
+                            logging.error(f"An error occurred during generation future execution: {e}", exc_info=True)
     else:
         logging.info("No tasks require generation.")
 
@@ -210,7 +253,8 @@ def run_eq_bench_creative(
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
             for task in tasks_to_judge:
-                base_prompt = creative_prompts[task.prompt_id]["writing_prompt"]
+                prompt_obj = creative_prompts[task.prompt_id]
+                base_prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
                 task_controller = CreativeWritingTask(task)
                 futures.append(executor.submit(
                     task_controller.judge,
