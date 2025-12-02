@@ -95,6 +95,7 @@ class CreativeWritingTask:
     def initialize_multiturn_structure(
         self,
         prompt: str,
+        category: str = "",
         num_chapters: int = DEFAULT_NUM_CHAPTERS,
         planning_prompt_template: str = "",
         chapter_first_template: str = "",
@@ -110,6 +111,7 @@ class CreativeWritingTask:
 
         Args:
             prompt: The writing prompt
+            category: The genre/category of the story
             num_chapters: Number of chapters to generate
             planning_prompt_template: Template for the planning turn
             chapter_first_template: Template for the first chapter
@@ -125,7 +127,7 @@ class CreativeWritingTask:
         # Turn 0: Planning
         planning_user_prompt = planning_prompt_template.replace(
             "{writing_prompt}", prompt
-        ).replace("{n_chapters}", str(num_chapters))
+        ).replace("{category}", category).replace("{n_chapters}", str(num_chapters))
 
         turns.append({
             "turn_type": "planning",
@@ -162,6 +164,7 @@ class CreativeWritingTask:
         self,
         test_model_client,
         prompt: str,
+        category: str = "",
         num_chapters: int = DEFAULT_NUM_CHAPTERS,
         planning_prompt_template: Optional[str] = None,
         chapter_first_template: Optional[str] = None,
@@ -200,6 +203,7 @@ class CreativeWritingTask:
         if not model_responses:
             model_responses = self.initialize_multiturn_structure(
                 prompt=prompt,
+                category=category,
                 num_chapters=num_chapters,
                 planning_prompt_template=planning_prompt_template,
                 chapter_first_template=chapter_first_template,
@@ -228,7 +232,7 @@ class CreativeWritingTask:
             prompt = self._format_messages_as_prompt(messages)
 
             # Debug: print the prompt being sent
-            print(f"\n{'='*60}\nTask {self.db_task.id} Turn {turn_idx} - Prompt:\n{prompt[:500]}...\n{'='*60}\n")
+            print(f"\n{'='*60}\nTask {self.db_task.id} Turn {turn_idx} - Prompt:\n{prompt}\n{'='*60}\n")
 
             # Generate with retries
             success = False

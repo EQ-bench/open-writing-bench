@@ -177,11 +177,13 @@ def run_eq_bench_creative(
                 for task in tasks_to_generate:
                     prompt_obj = creative_prompts[task.prompt_id]
                     prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
+                    category = prompt_obj.get("category", "")
                     task_controller = CreativeWritingTask(task)
                     futures.append(executor.submit(
                         task_controller.generate_multiturn,
                         test_model_client,
                         prompt,
+                        category=category,
                         num_chapters=num_chapters
                     ))
                 for future in tqdm(list(futures), desc="Generating multi-turn pieces"):

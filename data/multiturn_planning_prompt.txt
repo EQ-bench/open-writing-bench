@@ -1,8 +1,12 @@
-{writing_prompt}
+You are planning a {n_chapters}-chapter story, aiming for 1000 words per chapter.
+
+Category: {category}
+
+Writing prompt: {writing_prompt}
 
 --
 
-Your task is to create a comprehensive writing plan for this prompt. The scope will be a short story, written over {n_chapters} chapters. Each chapter will be approximately 1000 words so plan accordingly for this scope.
+Your task is to create a comprehensive writing plan for this prompt.
 
 Your plan should be thorough and follow this exact format:
 
