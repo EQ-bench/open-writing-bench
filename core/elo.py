@@ -695,11 +695,14 @@ def run_elo_analysis_creative(
     # or just as a clear constant for the loop.
     MAX_ITERS_PER_MODEL_FOR_PAIRING = 2 
 
+    total_stages = len(SAMPLING_SCHEDULE)
     for stage_idx, (radius_tiers, samples_at_closest_tier) in enumerate(SAMPLING_SCHEDULE, start=1):
         loops, stable = 0, False
+        is_final_stage = (stage_idx == total_stages)
         while (
-            (radius_tiers == (None,) and loops == 0) or # Stage 1: exactly one loop
-            (radius_tiers != (None,) and not stable and loops < MAX_STAGE_LOOPS)
+            (radius_tiers == (None,) and loops == 0) or # Stage 1 (global sampling): exactly one loop
+            (radius_tiers != (None,) and not is_final_stage and loops == 0) or # Non-final stages: exactly one loop
+            (radius_tiers != (None,) and is_final_stage and not stable and loops < MAX_STAGE_LOOPS) # Final stage: loop until stable
         ):
             loops += 1
             logging.info(f"[ELO-CW] Stage {stage_idx}, Loop {loops}. Test Model: {test_model} (ELO: {elo_snapshot.get(test_model, DEFAULT_ELO):.2f})")
