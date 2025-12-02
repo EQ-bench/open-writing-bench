@@ -23,7 +23,7 @@ from utils.truncation import truncate_text
 from core.scoring import parse_judge_scores_creative
 
 # Multi-turn configuration
-DEFAULT_NUM_CHAPTERS = 4
+DEFAULT_NUM_CHAPTERS = 3
 
 
 class CreativeWritingTask:
@@ -53,6 +53,9 @@ class CreativeWritingTask:
             return
 
         db.update_task(self.db_task.id, {"status": "generating"})
+
+        # Debug: print the prompt being sent
+        print(f"\n{'='*60}\nTask {self.db_task.id} - Prompt:\n{prompt}\n{'='*60}\n")
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):

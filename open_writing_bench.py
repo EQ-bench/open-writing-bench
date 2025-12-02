@@ -74,7 +74,9 @@ def main():
         redo_judging=args.redo_judging,
         iterations=args.iterations,
         run_elo=run_elo_flag,
-        vllm_params_file=args.vllm_params_file
+        vllm_params_file=args.vllm_params_file,
+        multiturn=True,
+        num_chapters=3
     )
 
 
