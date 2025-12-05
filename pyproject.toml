@@ -52,6 +52,8 @@ py-modules = ["open_writing_bench", "creative_writing_bench"]
 
 [tool.uv]
 package = true
+# Build packages sequentially to avoid resource exhaustion
+concurrent-builds = 1
 
 # flash-attn requires torch at build time but doesn't declare it
 [tool.uv.extra-build-dependencies]
