@@ -41,7 +41,7 @@
   },
   "11": {
     "category": "Epic fantasy",
-    "prompt": "The prophecy named five heroes. Four are dead. The fifth is a shepherd who has never held a sword—but the sheep always come home, even the ones that wander into wolf territory."
+    "prompt": "The dying king's last command was to find the girl with fire in her blood. No one knows what that means."
   },
   "12": {
     "category": "Dark fantasy",
@@ -49,7 +49,7 @@
   },
   "13": {
     "category": "Progression fantasy / LitRPG",
-    "prompt": "Everyone awakens their class at sixteen. Most get Warrior, Mage, Healer. I got [Witness]—a class with no combat skills, only the ability to see exactly how someone will die."
+    "prompt": "Everyone awakens a class at sixteen. Warriors, Mages, Rangers—the usual. I got [Bloodwright], a healer subclass so rare the Registry had to look it up. Apparently I don't mend wounds. I rewrite what caused them."
   },
   "14": {
     "category": "Alternate history",
@@ -57,7 +57,7 @@
   },
   "15": {
     "category": "Time travel",
-    "prompt": "The photograph in my grandmother's attic shows her standing next to a woman who looks exactly like me. It was taken in 1943. I wasn't born until 1995."
+    "prompt": "A faded photograph in my grandmother's attic shows her standing next to a woman who looks eerily like me. It was taken in 1943. I look closer—and see that she has my birthmark."
   },
   "16": {
     "category": "First contact",
@@ -69,7 +69,7 @@
   },
   "18": {
     "category": "Folk horror",
-    "prompt": "Every generation, our village sends one child to live with the woman in the woods. They come back different—quiet, watchful, able to do things they shouldn't. This year, she asked for me."
+    "prompt": "Every generation, our village sends one child to live with the woman in the woods for three days. They come back different. This year, she asked for me."
   },
   "19": {
     "category": "Psychological horror",
@@ -105,15 +105,15 @@
   },
   "27": {
     "category": "Locked room mystery",
-    "prompt": "Chloe's bedroom door was locked from the inside. Her window was painted shut ten years ago. But when her friends broke down the door at 2 AM, she was gone—and so was every mirror in the room."
+    "prompt": "The escape room was supposed to be a birthday party gimmick. Sixty minutes, solve the puzzles, get out. That was six hours ago. You don't think anyone is coming to help."
   },
   "28": {
     "category": "Amateur sleuth",
-    "prompt": "Marcus works at a used bookstore and minds his own business. But when a regular customer vanishes, leaving behind only a handwritten note tucked inside a 1962 first edition, he starts asking questions."
+    "prompt": "Jenna's shift at the movie theater ends at midnight. The last customer left a wallet in screen four—no ID, just a few crumpled receipts and a faded photograph of a young man in a nazi uniform."
   },
   "29": {
     "category": "Contemporary romance",
-    "prompt": "She's his emergency contact—has been since college. She doesn't know why he never updated it. He never told her he almost used it twice."
+    "prompt": "She's his emergency contact—has been since college. She doesn't know why he never updated it."
   },
   "30": {
     "category": "Historical romance",
@@ -133,7 +133,7 @@
   },
   "34": {
     "category": "Enemies to lovers",
-    "prompt": "She's the prosecutor. I'm the defense attorney. We've never lost to each other—which means we've never stopped trying. Drinks after the verdict was her idea."
+    "prompt": "He was leaving passive aggressive notes in her mailbox. She had escalated to dumping cat litter in his pot-plants. This anonymous feud between neighbours was months in the making, and that anonymity was about to shatter."
   },
   "35": {
     "category": "Friends to lovers",
@@ -198,5 +198,205 @@
   "50": {
     "category": "Third person omniscient",
     "prompt": "The bakery on Rue Mouffetard has stood for ninety years. It has seen occupations, revolutions, a brief stint as a resistance safe house. The woman behind the counter knows all of this. The customer ordering a croissant does not—but his grandmother once hid in the cellar, and the baker remembers."
+  },
+    "51": {
+    "category": "Epistolary",
+    "prompt": "A prisoner, in desperate isolation, writes a note on a scrap of paper, folds it into an airplane, and launches it through the barred window high above his head. A week later, a paper aeroplane returns. The correspondence continues for five years."
+  },
+  "52": {
+    "category": "Stream of consciousness",
+    "prompt": "First day on the front lines. Ukraine. You're tasked with clearing a section of recently contested forest. The sunlight comes sideways through the leaves, eerily beautiful. It's quiet."
+  },
+  "53": {
+    "category": "Fragmented / nonlinear",
+    "prompt": "This is not the beginning. The beginning was a lie anyway. Start here: the hospital. The phone call. The empty chair at the table."
+  },
+  "54": {
+    "category": "Character studies",
+    "prompt": "Everyone in town has an opinion about Mrs. Chen. None of them know why she moved here, why she never gets mail, or why she tends the grave of a child that isn't hers. You've decided it's your mission to make friends with Mrs. Chen, and to find out."
+  },
+  "55": {
+    "category": "\"What if\" scenarios",
+    "prompt": "What if your self-assessments are catastrophically wrong—everything you're confident you're good at is actually your worst quality, and everything you think you suck at are your superpowers?"
+  },
+  "56": {
+    "category": "Crossover concepts",
+    "prompt": "A hardboiled detective from 1940s LA wakes up in a cozy English village where Miss Marple types solve crimes over tea. He has a murder to solve and no patience for scones."
+  },
+  "57": {
+    "category": "Fix-it fic",
+    "prompt": "You remember how the story ended. The betrayal, the death, the silence that followed. But this time you woke up three chapters earlier—and you refuse to let it happen the same way."
+  },
+  "58": {
+    "category": "Modern AU",
+    "prompt": "The legendary warrior-king and the sorcerer who nearly destroyed him, reborn in the present day. He runs a hardware store. She just moved in next door. Neither remembers—yet."
+  },
+  "59": {
+    "category": "Crime drama",
+    "prompt": "She showed up at his door at 3 AM, soaking wet, shivering. He just hoped nobody had seen her come here. Seen her with him. Things in the Ozarks were about to get complicated."
+  },
+  "60": {
+    "category": "Slow burn (trope)",
+    "prompt": "Three years of late-night study sessions. Three years of almost. Tonight, the library closes and neither of them moves to leave."
+  },
+  "61": {
+    "category": "Lovers to enemies",
+    "prompt": "When your college roommate died by suicide twenty years ago, you gave a eulogy and moved on. Now your partner of six years has left a file on the kitchen table—police reports, journal entries, testimonies. She's the dead boy's younger sister."
+  },
+  "62": {
+    "category": "LitRPG / progression fantasy",
+    "prompt": "I died and woke up in a system notification. Apparently my life is now measured in stats. My starting class is [Unlucky], which feels about right."
+  },
+  "63": {
+    "category": "Isekai / portal fantasy",
+    "prompt": "The wardrobe in my grandmother's attic doesn't lead to Narnia. It leads to a world where she was a war criminal, and they remember her face."
+  },
+  "64": {
+    "category": "Cultivation / xianxia",
+    "prompt": "The Sect rejected me for my broken meridians. The old man on the mountain said that's exactly why he'd teach me—the broken ones learn to cheat."
+  },
+  "65": {
+    "category": "Dungeon core",
+    "prompt": "I used to be human. Now I'm the thing adventurers come to kill—a living dungeon, aware and awake, watching them descend level by level. I can't speak to them. I can only build. And they keep coming."
+  },
+  "66": {
+    "category": "Reincarnation / regression",
+    "prompt": "I've lived this life before. Every time I die, I wake up at sixteen again. But each loop, something is slightly worse—a friend missing, a building that was never built, a war that started earlier. I'm running out of good timelines."
+  },
+  "67": {
+    "category": "RPG campaign narratives",
+    "prompt": "The tavern falls silent when the stranger limps through the door—armor scorched, sword broken at the hilt. She drops a coin pouch on the bar. \"I need four people who aren't afraid to die. The pay is everything I own.\""
+  },
+  "68": {
+    "category": "D&D-style party adventures",
+    "prompt": "The guild board has a job listing that's been there for six months. The paper is yellowed, the ink faded—but every morning, someone has crossed out the previous reward and written a higher number."
+  },
+  "69": {
+    "category": "Non-human narrators",
+    "prompt": "I am the door to apartment 4B. I have been opened 7,342 times. I have heard arguments, confessions, and one goodbye that was never answered. This is what I know."
+  },
+  "70": {
+    "category": "Villain POV",
+    "prompt": "The hero's sword stops an inch from my throat. He's waiting for me to beg. Beg, then. Give him what he needs. I smile instead. I've already won—he just doesn't know it yet."
+  },
+  "71": {
+    "category": "Afrofuturism",
+    "prompt": "The orbital stations above Lagos run on ancestral code—algorithms derived from Ifá divination, refined over centuries. When the system predicts a catastrophe with no solution, they send for a babalawo. That's me. The system has never been wrong before."
+  },
+  "72": {
+    "category": "Latinx gothic",
+    "prompt": "The house my mother grew up in has been calling me back. In dreams first, then in letters that arrive with no postmark."
+  },
+  "73": {
+    "category": "Asian-inspired fantasy",
+    "prompt": "The emperor's astrologer has seen the fall of the dynasty in the stars. He has three days to change fate, or three days to choose who to warn."
+  },
+  "74": {
+    "category": "Queer speculative fiction",
+    "prompt": "In this world, you can see the red thread of fate connecting soulmates. Mine splits in two. The temple priests say this is impossible. I say they need to look harder."
+  },
+  "75": {
+    "category": "Dark academia",
+    "prompt": "The secret society's initiation is simple: spend one night in the library's restricted section. No one tells you what's restricted about it."
+  },
+  "76": {
+    "category": "Philip K. Dick",
+    "prompt": "The medication helps me tell what's real. Last week I ran out."
+  },
+  "77": {
+    "category": "William Gibson",
+    "prompt": "The data's buried in a dead man's cortex somewhere in the sprawl. My client wants it extracted. She didn't mention he's still walking around."
+  },
+  "78": {
+    "category": "Arthur C. Clarke",
+    "prompt": "The probe has been falling toward Jupiter for nine years. In sixteen hours, it will reach the depth where pressure crushes diamond. It was never designed to send data back. It just started."
+  },
+  "79": {
+    "category": "Douglas Adams",
+    "prompt": "The Galactic Planning Commission has scheduled Earth for demolition. The appeal window closed two million years ago. Technically, we were notified."
+  },
+  "80": {
+    "category": "Stephen King",
+    "prompt": "The town of Castle Mills has a lottery every spring. Everyone participates. No one remembers what the prize is. No one asks about the families who move away after."
+  },
+  "81": {
+    "category": "Jane Austen",
+    "prompt": "It is a truth universally acknowledged that a young lady in possession of a scandal must be in want of a quick marriage—or an even quicker escape."
+  },
+  "82": {
+    "category": "Enid Blyton",
+    "prompt": "The four cousins hadn't planned on finding a hidden passage behind the old bookshop. They certainly hadn't planned on what was living inside it."
+  },
+  "83": {
+    "category": "J.K. Rowling",
+    "prompt": "The letter arrived on my fortieth birthday—thirty years late. The Ministry has questions about why I was never enrolled. So do I."
+  },
+  "84": {
+    "category": "Terry Pratchett",
+    "prompt": "Death had seen many things in his eternal career, but a soul that refused to leave on the grounds of \"unfinished paperwork\" was a new one."
+  },
+  "85": {
+    "category": "Reddit nosleep",
+    "prompt": "I installed a camera to find out who was eating my food at night. I live alone. The footage shows me, standing in the kitchen at 3 AM, staring directly at the camera. I don't remember any of this."
+  },
+  "86": {
+    "category": "Greentext anthology",
+    "prompt": ">be me, night shift at the gas station"
+  },
+  "87": {
+    "category": "\"Villain was right actually\"",
+    "prompt": "The Dark Lord's notebooks were discovered posthumously. It turns out he *had* been kidnapping villagers and disappearing them through the hellish portal in his tower. And it was the only thing keeping whatever was on the other side from getting curious—or hungry—enough to cross over."
+  },
+  "88": {
+    "category": "\"I can fix them / I can make them worse\"",
+    "prompt": "Everyone warned me about him. Cold, ruthless, incapable of love. They were right."
+  },
+  "89": {
+    "category": "Shonen arc structure",
+    "prompt": "He's the weakest student in the academy. His technique is garbage. His stamina is a joke. But he has one thing no one else does: he refuses to stay down."
+  },
+  "90": {
+    "category": "Seinen psychological",
+    "prompt": "The perfect employee. The perfect neighbor. The perfect husband. He's been maintaining these masks for so long that he nearly forgot what's underneath."
+  },
+  "91": {
+    "category": "Horror manga (Junji Ito)",
+    "prompt": "The spirals started appearing in my sister's paintings. Then in her handwriting. Then in her hair. She says she can hear them now, turning."
+  },
+  "92": {
+    "category": "Reverse isekai",
+    "prompt": "The elven warrior has mastered the blade, faced dragons, and conquered kingdoms. She cannot figure out how to use a microwave."
+  },
+  "93": {
+    "category": "Isekai noir",
+    "prompt": "I died in Chicago and woke up in a city of elves, dwarves, and back-alley magic dealers. Same job, different world. Someone still needs to find the missing girl."
+  },
+  "94": {
+    "category": "Dialogue-only",
+    "prompt": "Two strangers share a hospital waiting room for twelve hours—one waiting for a birth, one for a death."
+  },
+  "95": {
+    "category": "Bottle episode",
+    "prompt": "Five coworkers. One conference room. The building is on lockdown—Loss Prevention says a quarter million dollars walked out the door today. No one leaves until someone confesses."
+  },
+  "96": {
+    "category": "Gig economy",
+    "prompt": "It's 1692. You moonlight for a rideshare service to make ends meet."
+  },
+  "97": {
+    "category": "Post-scarcity dystopia",
+    "prompt": "Humanity solved hunger and work—now teenagers compete in brutal games just to feel something."
+  },
+  "98": {
+    "category": "Overheard conversations",
+    "prompt": "A radio operator for the CIA is piecing together a mystery occurring in apartment 71E."
+  },
+  "99": {
+    "category": "Forbidden romance",
+    "prompt": "A widow begins an affair with her late husband's brother—who confesses he's the reason the husband is dead."
+  },
+  "100": {
+    "category": "Amblin-style adventure",
+    "prompt": "Something crashed out by Sedgwick farm last night. Tommy saw it through his telescope. As soon as school is out, we are enacting recon mission phase 1."
   }
 }
