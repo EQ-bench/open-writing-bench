@@ -52,3 +52,7 @@ py-modules = ["open_writing_bench", "creative_writing_bench"]
 
 [tool.uv]
 package = true
+
+# flash-attn requires torch at build time but doesn't declare it
+[tool.uv.build-system-requirements]
+flash-attn = ["torch"]
