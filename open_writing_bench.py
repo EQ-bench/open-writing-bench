@@ -24,8 +24,10 @@ def signal_handler(signum, frame):
 def main():
     parser = argparse.ArgumentParser(description="Run Creative Writing Benchmark (with iterations).")
     parser.add_argument("--test-model", required=True, help="The model name or identifier for the test model.")
-    parser.add_argument("--test-provider", required=True, choices=["openai","vllm","transformers"],
-                        help="Backend for the test model. Credentials/URL come from TEST_API_KEY/TEST_API_URL for 'openai'.")
+    parser.add_argument("--test-provider", required=True,
+                        choices=["http", "openai", "vllm", "vllm_local", "llamacpp", "llamacpp_local", "transformers", "hf"],
+                        help="Backend for the test model. 'http'/'openai' use TEST_API_KEY/TEST_API_URL. "
+                             "'vllm'/'llamacpp'/'transformers' run locally.")
 
     parser.add_argument("--judge-models", required=True, help="Comma-delimited list of judge model names (supports duplicates for stacking).")
     parser.add_argument("--run-id", help="Optional: Resume or create a run with this ID")
@@ -38,11 +40,35 @@ def main():
     parser.add_argument("--judge-prompt-file", default="data/creative_writing_judging_prompt.txt")
     parser.add_argument("--save-interval", type=int, default=2, help="How often to save partial progress.")
     parser.add_argument("--iterations", type=int, default=1, help="How many iteration passes to run (one seed per iteration).")
-    parser.add_argument("--vllm-params-file", help="Optional: Path to vLLM YAML configuration file for inspect-ai.")
+    parser.add_argument("--vllm-params-file", help="Deprecated: Use --backend-config instead.")
     parser.add_argument("--no-elo", action="store_true", default=False, help="Disable the ELO analysis step.")
+    parser.add_argument("--backend-config", type=str, default=None,
+                        help="JSON string or path to JSON file with backend-specific configuration. "
+                             "Example: '{\"tensor_parallel_size\": 2}' or 'config/backend.json'")
 
     args = parser.parse_args()
     os.environ["INSPECT_MAX_CONNECTIONS"] = str(args.threads)
+
+    # Parse backend config (JSON string or file path)
+    backend_config = None
+    if args.backend_config:
+        import json
+        config_str = args.backend_config.strip()
+        if config_str.startswith('{'):
+            # JSON string
+            try:
+                backend_config = json.loads(config_str)
+            except json.JSONDecodeError as e:
+                logging.error(f"Invalid JSON in --backend-config: {e}")
+                sys.exit(1)
+        else:
+            # File path
+            try:
+                with open(config_str, 'r') as f:
+                    backend_config = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                logging.error(f"Failed to load backend config from {config_str}: {e}")
+                sys.exit(1)
 
     setup_logging(get_verbosity(args.verbosity))
 
@@ -75,6 +101,7 @@ def main():
         iterations=args.iterations,
         run_elo=run_elo_flag,
         vllm_params_file=args.vllm_params_file,
+        backend_config=backend_config,
         multiturn=True,
         num_chapters=3
     )

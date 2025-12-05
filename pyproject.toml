@@ -8,7 +8,6 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.17.0",
-  "inspect-ai>=0.3.139",
   "joblib>=1.5.2",
   "nltk>=3.9.2",
   "numpy<2.3",
@@ -21,7 +20,21 @@ dependencies = [
   "tqdm>=4.67.1",
   "trueskill>=0.4.5",
   "wordfreq>=3.1.1",
-  "hf_transfer"
+  "hf_transfer",
+  # Inference backends
+  "vllm>=0.6.0",
+  "llama-cpp-python>=0.3.0",
+  "transformers>=4.45.0",
+  "torch>=2.0.0",
+  "accelerate>=0.30.0",
+  # Common model dependencies
+  "flash-attn>=2.5.0",
+  "bitsandbytes>=0.43.0",
+  "sentencepiece>=0.2.0",
+  "protobuf>=4.25.0",
+  "safetensors>=0.4.0",
+  "huggingface-hub>=0.24.0",
+  "tokenizers>=0.19.0",
 ]
 
 [project.scripts]
@@ -30,7 +43,7 @@ ensure-db = "alembic.ensure_db:main"
 
 # Only install the Python packages you actually import.
 [tool.setuptools.packages.find]
-include = ["core", "utils", "alembic"]
+include = ["core", "utils", "utils.inference", "alembic"]
 exclude = ["config*", "data*"]
 
 # Also install top-level single-file modules as importable modules.

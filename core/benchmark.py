@@ -85,6 +85,7 @@ def run_eq_bench_creative(
     iterations: int,
     run_elo: bool,
     vllm_params_file: Optional[str],
+    backend_config: Optional[Dict[str, Any]] = None,
     multiturn: bool = False,
     num_chapters: int = DEFAULT_NUM_CHAPTERS
 ) -> str:
@@ -104,7 +105,8 @@ def run_eq_bench_creative(
         redo_judging: If True, re-judge already judged tasks
         iterations: Number of iterations per prompt
         run_elo: Whether to run ELO analysis
-        vllm_params_file: Optional path to vLLM parameters
+        vllm_params_file: Deprecated - use backend_config instead
+        backend_config: Backend-specific configuration dict (e.g., tensor_parallel_size)
         multiturn: If True, use multi-turn generation (planning + chapters)
         num_chapters: Number of chapters for multi-turn mode (default 4)
 
@@ -124,6 +126,7 @@ def run_eq_bench_creative(
         "vllm_params_file": vllm_params_file,
         "test_model": test_model,
         "test_provider": test_provider,
+        "backend_config": backend_config,
         "multiturn": multiturn,
         "num_chapters": num_chapters if multiturn else None,
     }
@@ -166,7 +169,8 @@ def run_eq_bench_creative(
     if tasks_to_generate:
         test_model_client = get_client(test_model, client_type='test',
                                vllm_params_file=vllm_params_file,
-                               test_provider=test_provider)
+                               test_provider=test_provider,
+                               backend_config=backend_config)
 
         if multiturn:
             # Multi-turn generation: planning + chapters
