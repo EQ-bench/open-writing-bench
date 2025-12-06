@@ -1,4 +1,4 @@
-# utils/inference/llamacpp_local.py
+# utils/inference/llama_cpp_python.py
 
 """
 Local llama.cpp backend for in-process inference via llama-cpp-python.

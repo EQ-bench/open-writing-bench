@@ -28,10 +28,12 @@ class VLLMLocalBackend(InferenceBackend):
         "tensor_parallel_size", "pipeline_parallel_size",
         "gpu_memory_utilization", "max_model_len",
         "dtype", "quantization", "load_format",
-        "trust_remote_code", "tokenizer", "tokenizer_mode",
+        "tokenizer", "tokenizer_mode",
         "revision", "download_dir", "seed",
         "enforce_eager", "max_num_seqs", "max_num_batched_tokens",
         "enable_prefix_caching", "disable_log_stats",
+        # Ignored for security (always False)
+        "trust_remote_code",
     }
 
     KNOWN_GEN_PARAMS = {
@@ -50,7 +52,6 @@ class VLLMLocalBackend(InferenceBackend):
         max_model_len: Optional[int] = None,
         dtype: str = "auto",
         quantization: Optional[str] = None,
-        trust_remote_code: bool = False,
         seed: Optional[int] = None,
         **kwargs
     ):
@@ -64,10 +65,14 @@ class VLLMLocalBackend(InferenceBackend):
             max_model_len: Maximum sequence length (None = auto)
             dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
             quantization: Quantization method (None, "awq", "gptq", "squeezellm")
-            trust_remote_code: Trust remote code in HF models
             seed: Random seed for reproducibility
             **kwargs: Additional vLLM engine args
+
+        Note:
+            trust_remote_code is always set to False for security.
         """
+        # Filter out trust_remote_code if passed (always disabled for security)
+        kwargs.pop("trust_remote_code", None)
         super().__init__(model_name, **kwargs)
 
         try:
@@ -80,12 +85,13 @@ class VLLMLocalBackend(InferenceBackend):
         self._SamplingParams = SamplingParams
 
         # Collect engine args
+        # Note: trust_remote_code is always False for security
         engine_kwargs = {
             "model": model_name,
             "tensor_parallel_size": tensor_parallel_size,
             "gpu_memory_utilization": gpu_memory_utilization,
             "dtype": dtype,
-            "trust_remote_code": trust_remote_code,
+            "trust_remote_code": False,
         }
 
         if max_model_len is not None:

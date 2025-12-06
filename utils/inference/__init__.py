@@ -6,7 +6,8 @@ Inference backend abstraction layer.
 Provides a unified interface for different LLM inference backends:
 - HTTP: OpenAI-compatible APIs (works with vLLM server, llama.cpp server, OpenAI, etc.)
 - vLLM local: In-process vLLM inference
-- llama.cpp local: In-process llama-cpp-python inference
+- llama_cpp_python: In-process llama-cpp-python inference
+- llama_cpp_server: Managed llama.cpp server with process lifecycle management
 - Transformers local: In-process HuggingFace transformers inference
 
 Usage:
@@ -17,6 +18,9 @@ Usage:
 
     # Local vLLM
     backend = get_backend("vllm", model_name="meta-llama/Llama-3-8B", tensor_parallel_size=2)
+
+    # llama.cpp with managed server
+    backend = get_backend("llama_cpp_server", model_name="/path/to/model.gguf", n_gpu_layers=-1)
 
     # Generate
     result = backend.generate("Hello, world!", temperature=0.7, max_tokens=100)
@@ -33,9 +37,14 @@ _BACKEND_REGISTRY = {
     "vllm": ("utils.inference.vllm_local", "VLLMLocalBackend"),
     "vllm_local": ("utils.inference.vllm_local", "VLLMLocalBackend"),  # explicit
     "vllm_http": ("utils.inference.http", "HTTPBackend"),  # explicit http mode
-    "llamacpp": ("utils.inference.llamacpp_local", "LlamaCppLocalBackend"),
-    "llamacpp_local": ("utils.inference.llamacpp_local", "LlamaCppLocalBackend"),
+    # llama.cpp backends
+    "llama_cpp_python": ("utils.inference.llama_cpp_python", "LlamaCppLocalBackend"),
+    "llama_cpp_server": ("utils.inference.llama_cpp_server", "LlamaCppServerBackend"),
+    # Legacy aliases for llama.cpp
+    "llamacpp": ("utils.inference.llama_cpp_python", "LlamaCppLocalBackend"),
+    "llamacpp_local": ("utils.inference.llama_cpp_python", "LlamaCppLocalBackend"),
     "llamacpp_http": ("utils.inference.http", "HTTPBackend"),
+    # Transformers
     "transformers": ("utils.inference.transformers_local", "TransformersLocalBackend"),
     "hf": ("utils.inference.transformers_local", "TransformersLocalBackend"),  # alias
 }
@@ -50,8 +59,9 @@ def get_backend(provider: str, **kwargs) -> InferenceBackend:
             - "http" / "openai": OpenAI-compatible HTTP API
             - "vllm" / "vllm_local": In-process vLLM
             - "vllm_http": vLLM via HTTP (uses http backend)
-            - "llamacpp" / "llamacpp_local": In-process llama-cpp-python
-            - "llamacpp_http": llama.cpp server via HTTP
+            - "llama_cpp_python" / "llamacpp": In-process llama-cpp-python
+            - "llama_cpp_server": Managed llama.cpp server process
+            - "llamacpp_http": llama.cpp server via HTTP (external server)
             - "transformers" / "hf": In-process HuggingFace transformers
         **kwargs: Backend-specific configuration (model_name, api_key, etc.)
 
@@ -86,7 +96,7 @@ def get_backend(provider: str, **kwargs) -> InferenceBackend:
 
 def list_backends() -> list[str]:
     """Return list of available backend names (without aliases)."""
-    return ["http", "vllm", "llamacpp", "transformers"]
+    return ["http", "vllm", "llama_cpp_python", "llama_cpp_server", "transformers"]
 
 
 __all__ = [

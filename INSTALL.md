@@ -1,5 +1,10 @@
 # Installation
 
+```bash
+git clone https://github.com/EQ-bench/open-writing-bench.git
+cd open-writing-bench
+```
+
 ## Prerequisites
 
 Install build tools:
@@ -20,19 +25,31 @@ uv sync
 
 # 2. Activate environment and set build parallelism
 source .venv/bin/activate
-export MAX_JOBS=12
-export CMAKE_BUILD_PARALLEL_LEVEL=12
 
 # 3. Install GPU backends (choose what you need)
 
+# configure environment for builds:
+ulimit -n 65535
+export MAX_JOBS=12
+export CMAKE_BUILD_PARALLEL_LEVEL=12
+
+uv pip install torch
+
+# Flash Attention (optional, improves transformer performance)
+uv pip install flash-attn --no-build-isolation
+
 # vLLM (recommended for high-throughput GPU inference)
+# To use pip's dependency resolver to try to find prebuilt wheels
+# (WARNING: may change torch version & other deps):
+uv pip install vllm
+# OR to try to find prebuild wheels for *this* env, and otherwise
+# build from source, use this script:
 python scripts/install_vllm.py
 
 # llama.cpp (for GGUF models)
 python scripts/install_llama_cpp.py
 
-# Flash Attention (optional, improves transformer performance)
-uv pip install flash-attn
+
 ```
 
 ## Backend Installation Details

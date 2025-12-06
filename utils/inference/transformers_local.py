@@ -26,11 +26,13 @@ class TransformersLocalBackend(InferenceBackend):
         "model_name",
         # Model loading params
         "device_map", "torch_dtype", "load_in_8bit", "load_in_4bit",
-        "trust_remote_code", "revision", "token",
+        "revision", "token",
         "attn_implementation", "use_flash_attention_2",
         "low_cpu_mem_usage", "offload_folder",
         # Tokenizer params
         "tokenizer_name", "padding_side",
+        # Ignored for security (always False)
+        "trust_remote_code",
     }
 
     KNOWN_GEN_PARAMS = {
@@ -47,7 +49,6 @@ class TransformersLocalBackend(InferenceBackend):
         torch_dtype: Optional[str] = "auto",
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
-        trust_remote_code: bool = False,
         attn_implementation: Optional[str] = None,
         tokenizer_name: Optional[str] = None,
         padding_side: str = "left",  # left padding for batch generation
@@ -62,12 +63,16 @@ class TransformersLocalBackend(InferenceBackend):
             torch_dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
             load_in_8bit: Use 8-bit quantization (requires bitsandbytes)
             load_in_4bit: Use 4-bit quantization (requires bitsandbytes)
-            trust_remote_code: Trust remote code in HF models
             attn_implementation: Attention implementation ("flash_attention_2", "sdpa", etc.)
             tokenizer_name: Override tokenizer (default: same as model_name)
             padding_side: Padding side for batch generation ("left" recommended)
             **kwargs: Additional model loading params
+
+        Note:
+            trust_remote_code is always set to False for security.
         """
+        # Filter out trust_remote_code if passed (always disabled for security)
+        kwargs.pop("trust_remote_code", None)
         super().__init__(model_name, **kwargs)
 
         try:
@@ -94,9 +99,10 @@ class TransformersLocalBackend(InferenceBackend):
         resolved_dtype = dtype_map.get(torch_dtype, torch_dtype) if torch_dtype else "auto"
 
         # Build model kwargs
+        # Note: trust_remote_code is always False for security
         model_kwargs = {
             "device_map": device_map,
-            "trust_remote_code": trust_remote_code,
+            "trust_remote_code": False,
         }
 
         if resolved_dtype != "auto":
@@ -123,7 +129,7 @@ class TransformersLocalBackend(InferenceBackend):
         tokenizer_id = tokenizer_name or model_name
         self._tokenizer = AutoTokenizer.from_pretrained(
             tokenizer_id,
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=False,
             padding_side=padding_side,
         )
 
