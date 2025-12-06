@@ -20,7 +20,7 @@ apt install nvidia-cuda-toolkit
 ## Quick Start
 
 ```bash
-# 1. Install base dependencies
+# 1. Install base dependencies (includes spaCy model for lexical analysis)
 uv sync
 
 # 2. Activate environment and set build parallelism

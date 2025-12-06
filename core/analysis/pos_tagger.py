@@ -3,8 +3,9 @@
 Ported from not-x-but-y-bench/src/pos_tagger.py
 """
 import re
-import spacy
 from functools import lru_cache
+
+import spacy
 
 # Load once, keep only POS + sents for speed.
 try:
@@ -12,12 +13,12 @@ try:
 except OSError:
     raise RuntimeError(
         "spaCy model 'en_core_web_sm' is not installed.\n"
-        "This model is REQUIRED for Stage-2 POS tagging.\n\n"
+        "This model is REQUIRED for lexical analysis.\n\n"
         "To install it, run:\n"
         "  uv run python -m spacy download en_core_web_sm\n"
     )
 
-if _NLP is not None and "senter" not in _NLP.pipe_names and "sentencizer" not in _NLP.pipe_names:
+if "senter" not in _NLP.pipe_names and "sentencizer" not in _NLP.pipe_names:
     _NLP.add_pipe("sentencizer")
 
 def get_nlp():
@@ -25,8 +26,6 @@ def get_nlp():
 
 @lru_cache(maxsize=1024)
 def _doc(text: str):
-    if _NLP is None:
-        return None
     return _NLP(text)
 
 

@@ -21,6 +21,9 @@ dependencies = [
   "tqdm>=4.67.1",
   "trueskill>=0.4.5",
   "wordfreq>=3.1.1",
+  "spacy>=3.7.0",
+  # spaCy model for lexical analysis (installed from GitHub releases)
+  "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
   "hf_transfer",
   # Transformers backend (installed via uv)
   "transformers>=4.45.0",
@@ -41,8 +44,13 @@ bench = "open_writing_bench:main"
 ensure-db = "alembic.ensure_db:main"
 
 # Only install the Python packages you actually import.
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
 [tool.setuptools.packages.find]
-include = ["core", "utils", "utils.inference", "alembic"]
+include = ["core", "core.analysis", "utils", "utils.inference", "alembic"]
 exclude = ["config*", "data*"]
 
 # Also install top-level single-file modules as importable modules.

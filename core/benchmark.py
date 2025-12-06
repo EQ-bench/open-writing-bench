@@ -30,6 +30,7 @@ from core.scoring import (
     aggregate_ensemble_scores_bulk
 )
 from core.elo import run_elo_analysis_creative
+from core.analysis import analyze_task, aggregate_analyses, format_analysis_summary
 
 def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str]):
     """
@@ -279,7 +280,37 @@ def run_eq_bench_creative(
     else:
         logging.info("No tasks require judging.")
 
-    # --- 5. Final Scoring and ELO ---
+    # --- 5. Lexical Analysis ---
+    logging.info("Running lexical analysis...")
+    completed_tasks_for_analysis = db.get_tasks_for_run(run_key, status_filter='judged')
+    # Also include already completed tasks
+    completed_tasks_for_analysis.extend(db.get_tasks_for_run(run_key, status_filter='completed'))
+
+    if completed_tasks_for_analysis:
+        analyses = []
+        for task in completed_tasks_for_analysis:
+            try:
+                analysis = analyze_task(task)
+                if analysis:
+                    analyses.append(analysis)
+            except Exception as e:
+                logging.warning(f"Lexical analysis failed for task {task.id}: {e}")
+
+        if analyses:
+            aggregated = aggregate_analyses(analyses)
+            logging.info(f"\n{format_analysis_summary(aggregated)}")
+
+            # Save to run results
+            current_run = db.get_run(run_key)
+            results_dict = current_run.results or {}
+            results_dict["lexical_analysis"] = dict(aggregated)
+            db.update_run(run_key, {"results": results_dict})
+        else:
+            logging.warning("No tasks available for lexical analysis.")
+    else:
+        logging.info("No completed tasks for lexical analysis.")
+
+    # --- 6. Final Scoring and ELO ---
     compute_benchmark_results_creative(run_key, negative_criteria)
 
     if run_elo:

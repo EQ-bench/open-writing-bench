@@ -14,15 +14,15 @@ from pathlib import Path
 from typing import Any
 
 # Import reference implementation modules
-from . import _regexes_v3 as regexes_v3
-from . import _regexes_pos as regexes_pos
-from ._pos_tagger import tag_stream_with_offsets
+from . import regexes_v3
+from . import regexes_pos
+from .pos_tagger import tag_stream_with_offsets
 
 # =============================================================================
 # Data Loading
 # =============================================================================
 
-_DATA_DIR = Path(__file__).parent.parent.parent.parent.parent / "data"
+_DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
 
 def _normalize_quotes(s: str) -> str:
@@ -62,7 +62,7 @@ def words_only_lower(s: str) -> list[str]:
 @lru_cache(maxsize=1)
 def load_slop_words() -> set[str]:
     """Load slop words from JSON file."""
-    path = _DATA_DIR / "slop_list_words.json"
+    path = _DATA_DIR / "slop_list.json"
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
