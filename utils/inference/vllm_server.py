@@ -135,7 +135,7 @@ class VLLMServerBackend(InferenceBackend):
         max_concurrent: int = 8,
         max_retries: int = 3,
         retry_delay: int = 5,
-        startup_timeout: int = 300,
+        startup_timeout: int = 1500,
         health_check_interval: float = 1.0,
         extra_args: Optional[list[str]] = None,
         **kwargs
