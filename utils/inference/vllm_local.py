@@ -28,6 +28,7 @@ class VLLMLocalBackend(InferenceBackend):
         "VLLM_ATTENTION_BACKEND",
         "VLLM_USE_TRITON_FLASH_ATTN",
         "VLLM_USE_V1",
+        "VLLM_DISABLE_FLASHINFER",
     }
 
     KNOWN_INIT_PARAMS = {
