@@ -245,7 +245,7 @@ class LlamaCppServerBackend(InferenceBackend):
             cmd.append("--cont-batching")
 
         if flash_attn:
-            cmd.append("--flash-attn")
+            cmd.extend(["--flash-attn", "on"])
 
         # Pass through additional server args
         passthrough_args = {
