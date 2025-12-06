@@ -5,11 +5,32 @@ Base classes and utilities for inference backends.
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# Patterns for thinking/reasoning tags to strip from model outputs
+# These are commonly used by models for chain-of-thought that shouldn't appear in final output
+THINKING_TAG_PATTERNS = [
+    re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE),
+    re.compile(r"<reasoning>.*?</reasoning>", re.DOTALL | re.IGNORECASE),
+]
+
+
+def strip_thinking_tags(text: str) -> str:
+    """
+    Remove common thinking/reasoning tags from model output.
+
+    Many models use XML-style tags like <think>, <reasoning>, etc. for
+    chain-of-thought that shouldn't appear in the final output.
+    """
+    for pattern in THINKING_TAG_PATTERNS:
+        text = pattern.sub("", text)
+    return text.strip()
 
 
 @dataclass

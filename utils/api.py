@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from .config_loader import get_judge_config
 from .inference import get_backend, InferenceBackend
+from .inference.base import strip_thinking_tags
 
 load_dotenv()
 
@@ -71,21 +72,23 @@ class InferenceBackendClient(LLMClient):
 
     def generate(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
         """Generate text using the underlying backend."""
-        return self._backend.generate(
+        result = self._backend.generate(
             prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs
         )
+        return strip_thinking_tags(result)
 
     def generate_many(self, prompts: list[str], temperature: float, max_tokens: int, **kwargs) -> list[str]:
         """Generate text from multiple prompts using the backend's native batching."""
-        return self._backend.generate_many(
+        results = self._backend.generate_many(
             prompts,
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs
         )
+        return [strip_thinking_tags(r) for r in results]
 
     def close(self) -> None:
         """Release backend resources."""
