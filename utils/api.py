@@ -129,6 +129,10 @@ def _create_backend_from_config(
             config["api_key"] = os.getenv("TEST_API_KEY", "")
         if "timeout" not in config:
             config["timeout"] = int(os.getenv("REQUEST_TIMEOUT", 240))
+        if "max_retries" not in config:
+            config["max_retries"] = int(os.getenv("MAX_RETRIES", 3))
+        if "retry_delay" not in config:
+            config["retry_delay"] = int(os.getenv("RETRY_DELAY", 5))
 
     # Create the backend
     return get_backend(
