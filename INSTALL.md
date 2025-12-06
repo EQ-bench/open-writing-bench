@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Install build tools before proceeding:
+Install build tools:
 
 ```bash
 # Ubuntu/Debian
@@ -10,6 +10,7 @@ apt install build-essential cmake ninja-build
 
 # For CUDA builds
 apt install nvidia-cuda-toolkit
+```
 
 ## Quick Start
 
@@ -17,8 +18,10 @@ apt install nvidia-cuda-toolkit
 # 1. Install base dependencies
 uv sync
 
-# 2. Activate environment
+# 2. Activate environment and set build parallelism
 source .venv/bin/activate
+export MAX_JOBS=12
+export CMAKE_BUILD_PARALLEL_LEVEL=12
 
 # 3. Install GPU backends (choose what you need)
 
@@ -29,7 +32,7 @@ python scripts/install_vllm.py
 python scripts/install_llama_cpp.py
 
 # Flash Attention (optional, improves transformer performance)
-pip install flash-attn
+uv pip install flash-attn
 ```
 
 ## Backend Installation Details
@@ -67,13 +70,7 @@ Options:
 Improves attention performance for transformers backend:
 
 ```bash
-pip install flash-attn
-```
-
-If build fails or is slow:
-```bash
-# Use ninja and limit parallel jobs
-CMAKE_BUILD_PARALLEL_LEVEL=4 pip install flash-attn
+uv pip install flash-attn
 ```
 
 ## Environment Variables
@@ -110,10 +107,10 @@ python -c "import torch; print(torch.version.cuda)" # PyTorch CUDA
 
 ### Out of Memory During Build
 
-Limit parallel compilation:
+Reduce parallel jobs further:
 ```bash
-MAX_JOBS=4 pip install flash-attn
-CMAKE_BUILD_PARALLEL_LEVEL=4 python scripts/install_vllm.py
+export MAX_JOBS=2
+export CMAKE_BUILD_PARALLEL_LEVEL=2
 ```
 
 ### Slow Builds

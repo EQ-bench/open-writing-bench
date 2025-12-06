@@ -390,7 +390,7 @@ def run_pip_install(
     env_overrides: Optional[Dict[str, str]] = None,
     dry_run: bool = False,
 ) -> bool:
-    cmd: List[str] = [sys.executable, "-m", "pip", "install", project_spec]
+    cmd: List[str] = ["uv", "pip", "install", project_spec]
     if prefer_binary:
         cmd.append("--prefer-binary")
     if only_binary:

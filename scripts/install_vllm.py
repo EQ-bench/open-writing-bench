@@ -347,7 +347,7 @@ def install_prebuilt_wheel(wheel: WheelInfo, env: EnvInfo, dry_run: bool = False
         raise RuntimeError("CUDA tag is unknown; cannot choose PyTorch wheel index.")
 
     extra_index = get_torch_index_url(env.cuda_tag)
-    cmd: List[str] = [sys.executable, "-m", "pip", "install", "-U"]
+    cmd: List[str] = ["uv", "pip", "install", "-U"]
 
     if wheel.source == "github":
         target = wheel.url
@@ -366,8 +366,7 @@ def build_from_source(version: str, env: EnvInfo, dry_run: bool = False) -> None
 
     extra_index = get_torch_index_url(env.cuda_tag)
     cmd: List[str] = [
-        sys.executable,
-        "-m",
+        "uv",
         "pip",
         "install",
         f"{PYPI_PACKAGE_NAME}=={version}",
