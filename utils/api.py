@@ -209,12 +209,18 @@ def get_client(
                 "Only 'openai' (OpenAI-compatible) is supported for judges."
             )
 
+        # Get judge-specific retry settings from env vars
+        max_retries = int(os.getenv("MAX_JUDGE_RETRIES", os.getenv("MAX_RETRIES", 3)))
+        retry_delay = int(os.getenv("JUDGE_RETRY_DELAY", os.getenv("RETRY_DELAY", 5)))
+
         backend = get_backend(
             provider="http",
             model_name=judge_config['model_id'],
             base_url=judge_config['base_url'],
             api_key=judge_config['api_key'],
             system_prompt=judge_config.get('system_prompt'),
+            max_retries=max_retries,
+            retry_delay=retry_delay,
         )
         return InferenceBackendClient(backend, judge_config['model_id'])
 
