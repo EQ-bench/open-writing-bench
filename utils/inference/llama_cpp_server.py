@@ -117,12 +117,16 @@ class LlamaCppServerBackend(InferenceBackend):
     _active_instances: list["LlamaCppServerBackend"] = []
     _cleanup_registered = False
 
+    # Default port range to try if the requested port is busy
+    DEFAULT_PORT = 29413  # Uncommon port, less likely to conflict
+    PORT_RETRY_RANGE = 10  # Try up to 10 ports
+
     def __init__(
         self,
         model_name: str,  # path to GGUF file
         server_path: Optional[str] = None,
         host: str = "127.0.0.1",
-        port: int = 8080,
+        port: Optional[int] = None,
         n_ctx: int = 4096,
         n_batch: int = 512,
         n_threads: Optional[int] = None,
@@ -145,7 +149,7 @@ class LlamaCppServerBackend(InferenceBackend):
             model_name: Path to GGUF model file
             server_path: Path to llama-server executable (auto-detected if None)
             host: Host to bind server to
-            port: Port to bind server to
+            port: Port to bind server to (default: 29413, with automatic fallback)
             n_ctx: Context window size
             n_batch: Batch size for prompt processing
             n_threads: Number of CPU threads (None = auto)
@@ -174,8 +178,9 @@ class LlamaCppServerBackend(InferenceBackend):
             )
 
         self.host = host
-        self.port = port
-        self.base_url = f"http://{host}:{port}"
+        self._requested_port = port if port is not None else self.DEFAULT_PORT
+        self.port = self._requested_port  # Will be updated if we need to fallback
+        self.base_url = f"http://{host}:{self.port}"
         self.timeout = timeout
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
@@ -183,18 +188,18 @@ class LlamaCppServerBackend(InferenceBackend):
         self.startup_timeout = startup_timeout
         self.health_check_interval = health_check_interval
 
-        # Build server command
-        self._cmd = self._build_server_command(
-            model_name=model_name,
-            n_ctx=n_ctx,
-            n_batch=n_batch,
-            n_threads=n_threads,
-            n_gpu_layers=n_gpu_layers,
-            n_parallel=n_parallel,
-            cont_batching=cont_batching,
-            flash_attn=flash_attn,
+        # Store command-building parameters for port retry
+        self._cmd_params = {
+            "model_name": model_name,
+            "n_ctx": n_ctx,
+            "n_batch": n_batch,
+            "n_threads": n_threads,
+            "n_gpu_layers": n_gpu_layers,
+            "n_parallel": n_parallel,
+            "cont_batching": cont_batching,
+            "flash_attn": flash_attn,
             **kwargs
-        )
+        }
 
         # Process management
         self._process: Optional[subprocess.Popen] = None
@@ -211,8 +216,8 @@ class LlamaCppServerBackend(InferenceBackend):
         # Register cleanup
         self._register_cleanup()
 
-        # Start the server
-        self._start_server()
+        # Start the server (with port fallback)
+        self._start_server_with_retry()
 
     def _build_server_command(
         self,
@@ -321,6 +326,63 @@ class LlamaCppServerBackend(InferenceBackend):
                 pipe.close()
             except Exception:
                 pass
+
+    def _start_server_with_retry(self):
+        """Start the server, trying alternative ports if the requested port is busy."""
+        last_error = None
+
+        for port_offset in range(self.PORT_RETRY_RANGE):
+            try_port = self._requested_port + port_offset
+            self.port = try_port
+            self.base_url = f"http://{self.host}:{self.port}"
+
+            # Build command with current port
+            self._cmd = self._build_server_command(**self._cmd_params)
+
+            try:
+                self._start_server()
+                if port_offset > 0:
+                    logger.info(f"Successfully bound to fallback port {self.port} "
+                               f"(requested port {self._requested_port} was busy)")
+                return  # Success
+            except RuntimeError as e:
+                error_msg = str(e)
+                # Check if this is a port binding error
+                if "couldn't bind" in error_msg.lower() or "address already in use" in error_msg.lower():
+                    logger.warning(f"Port {try_port} is busy, trying next port...")
+                    last_error = e
+                    # Clean up failed process
+                    self._cleanup_process()
+                    continue
+                else:
+                    # Some other error, don't retry
+                    raise
+
+        # All ports exhausted
+        raise RuntimeError(
+            f"Failed to bind to any port in range {self._requested_port}-"
+            f"{self._requested_port + self.PORT_RETRY_RANGE - 1}. "
+            f"Last error: {last_error}"
+        )
+
+    def _cleanup_process(self):
+        """Clean up a failed process attempt."""
+        self._shutdown_event.set()
+        if self._process is not None:
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=5)
+            except Exception:
+                try:
+                    self._process.kill()
+                except Exception:
+                    pass
+            self._process = None
+        # Reset for next attempt
+        self._shutdown_event.clear()
+        with self._output_lock:
+            self._stdout_buffer.clear()
+            self._stderr_buffer.clear()
 
     def _start_server(self):
         """Start the llama-server process and wait for it to be ready."""
