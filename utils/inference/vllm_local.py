@@ -7,6 +7,7 @@ Requires: pip install vllm
 """
 
 import logging
+import os
 from typing import Any, Optional
 
 from .base import InferenceBackend
@@ -22,8 +23,17 @@ class VLLMLocalBackend(InferenceBackend):
     vLLM handles GPU parallelism internally (tensor parallel, continuous batching).
     """
 
+    # Allowed environment variables that can be set via ENV_VARS config
+    ALLOWED_ENV_VARS = {
+        "VLLM_ATTENTION_BACKEND",
+        "VLLM_USE_TRITON_FLASH_ATTN",
+        "VLLM_USE_V1",
+    }
+
     KNOWN_INIT_PARAMS = {
         "model_name",
+        # Environment variables (set before vLLM import)
+        "ENV_VARS",
         # vLLM engine args
         "tensor_parallel_size", "pipeline_parallel_size",
         "gpu_memory_utilization", "max_model_len",
@@ -66,11 +76,19 @@ class VLLMLocalBackend(InferenceBackend):
             dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
             quantization: Quantization method (None, "awq", "gptq", "squeezellm")
             seed: Random seed for reproducibility
-            **kwargs: Additional vLLM engine args
+            **kwargs: Additional vLLM engine args. Special keys:
+                ENV_VARS: dict of environment variables to set before loading vLLM.
+                    Only allowed vars: VLLM_ATTENTION_BACKEND, VLLM_USE_TRITON_FLASH_ATTN,
+                    VLLM_USE_V1.
 
         Note:
             trust_remote_code is always set to False for security.
         """
+        # Set environment variables BEFORE importing vLLM
+        env_vars = kwargs.pop("ENV_VARS", None)
+        if env_vars:
+            self._set_env_vars(env_vars)
+
         # Filter out trust_remote_code if passed (always disabled for security)
         kwargs.pop("trust_remote_code", None)
         super().__init__(model_name, **kwargs)
@@ -112,6 +130,18 @@ class VLLMLocalBackend(InferenceBackend):
         self._llm = LLM(**engine_kwargs)
 
         logger.info(f"vLLM model loaded: {model_name}")
+
+    def _set_env_vars(self, env_vars: dict[str, str]) -> None:
+        """Set allowed environment variables before vLLM import."""
+        for key, value in env_vars.items():
+            if key not in self.ALLOWED_ENV_VARS:
+                logger.warning(
+                    f"VLLMLocalBackend: Ignoring disallowed env var: {key}. "
+                    f"Allowed: {self.ALLOWED_ENV_VARS}"
+                )
+                continue
+            logger.debug(f"Setting env var: {key}={value}")
+            os.environ[key] = str(value)
 
     def _build_sampling_params(self, **kwargs) -> Any:
         """Build vLLM SamplingParams from kwargs."""
