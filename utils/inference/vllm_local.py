@@ -1,13 +1,20 @@
 # utils/inference/vllm_local.py
 
 """
-Local vLLM backend for in-process inference.
+Local vLLM backend for in-process inference using AsyncLLMEngine.
 
 Requires: pip install vllm
+
+This backend uses vLLM's AsyncLLMEngine for true concurrent request handling.
+Multiple generate() calls from different threads are processed concurrently
+via the async engine's continuous batching.
 """
 
+import asyncio
 import logging
 import os
+import threading
+import uuid
 from typing import Any, Optional
 
 from .base import InferenceBackend
@@ -17,10 +24,10 @@ logger = logging.getLogger(__name__)
 
 class VLLMLocalBackend(InferenceBackend):
     """
-    In-process vLLM inference backend.
+    In-process vLLM inference backend using AsyncLLMEngine.
 
-    Parallelism: Uses vLLM's native batching via generate() with multiple prompts.
-    vLLM handles GPU parallelism internally (tensor parallel, continuous batching).
+    Parallelism: Uses vLLM's AsyncLLMEngine for true concurrent request processing.
+    Multiple requests are batched together by the engine for optimal GPU utilization.
     """
 
     # Allowed environment variables that can be set via ENV_VARS config
@@ -31,6 +38,7 @@ class VLLMLocalBackend(InferenceBackend):
         "VLLM_DISABLE_FLASHINFER",
         "VLLM_USE_FLASHINFER_SAMPLER",
         "VLLM_USE_TRTLLM_ATTENTION",
+        "CUDA_VISIBLE_DEVICES",
     }
 
     KNOWN_INIT_PARAMS = {
@@ -47,6 +55,8 @@ class VLLMLocalBackend(InferenceBackend):
         "enable_prefix_caching", "disable_log_stats",
         # Ignored for security (always False)
         "trust_remote_code",
+        # Concurrency settings
+        "max_concurrent",
     }
 
     KNOWN_GEN_PARAMS = {
@@ -66,10 +76,11 @@ class VLLMLocalBackend(InferenceBackend):
         dtype: str = "auto",
         quantization: Optional[str] = None,
         seed: Optional[int] = None,
+        max_concurrent: int = 32,
         **kwargs
     ):
         """
-        Initialize vLLM backend.
+        Initialize vLLM backend with AsyncLLMEngine.
 
         Args:
             model_name: HuggingFace model name or path
@@ -79,10 +90,9 @@ class VLLMLocalBackend(InferenceBackend):
             dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
             quantization: Quantization method (None, "awq", "gptq", "squeezellm")
             seed: Random seed for reproducibility
+            max_concurrent: Max concurrent requests for generate_many
             **kwargs: Additional vLLM engine args. Special keys:
                 ENV_VARS: dict of environment variables to set before loading vLLM.
-                    Only allowed vars: VLLM_ATTENTION_BACKEND, VLLM_USE_TRITON_FLASH_ATTN,
-                    VLLM_USE_V1.
 
         Note:
             trust_remote_code is always set to False for security.
@@ -96,8 +106,12 @@ class VLLMLocalBackend(InferenceBackend):
         kwargs.pop("trust_remote_code", None)
         super().__init__(model_name, **kwargs)
 
+        self.max_concurrent = max_concurrent
+
         try:
-            from vllm import LLM, SamplingParams
+            from vllm import SamplingParams
+            from vllm.engine.arg_utils import AsyncEngineArgs
+            from vllm.engine.async_llm_engine import AsyncLLMEngine
         except ImportError as e:
             raise ImportError(
                 "vLLM is not installed. Install with: pip install vllm"
@@ -106,7 +120,6 @@ class VLLMLocalBackend(InferenceBackend):
         self._SamplingParams = SamplingParams
 
         # Collect engine args
-        # Note: trust_remote_code is always False for security
         engine_kwargs = {
             "model": model_name,
             "tensor_parallel_size": tensor_parallel_size,
@@ -127,12 +140,30 @@ class VLLMLocalBackend(InferenceBackend):
             if key in self.KNOWN_INIT_PARAMS and key not in engine_kwargs:
                 engine_kwargs[key] = kwargs[key]
 
-        logger.info(f"Loading vLLM model: {model_name}")
+        logger.info(f"Loading vLLM async engine: {model_name}")
         logger.debug(f"vLLM engine args: {engine_kwargs}")
 
-        self._llm = LLM(**engine_kwargs)
+        # Create async engine
+        engine_args = AsyncEngineArgs(**engine_kwargs)
 
-        logger.info(f"vLLM model loaded: {model_name}")
+        # Create event loop for async operations
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(target=self._run_event_loop, daemon=True)
+        self._loop_thread.start()
+
+        # Initialize engine in the event loop
+        future = asyncio.run_coroutine_threadsafe(
+            AsyncLLMEngine.from_engine_args(engine_args),
+            self._loop
+        )
+        self._engine = future.result()
+
+        logger.info(f"vLLM async engine loaded: {model_name}")
+
+    def _run_event_loop(self):
+        """Run the event loop in a background thread."""
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
 
     def _set_env_vars(self, env_vars: dict[str, str]) -> None:
         """Set allowed environment variables before vLLM import."""
@@ -180,41 +211,75 @@ class VLLMLocalBackend(InferenceBackend):
 
         return self._SamplingParams(**params)
 
+    async def _generate_async(self, prompt: str, request_id: str, sampling_params: Any) -> str:
+        """Generate text asynchronously using the async engine."""
+        final_output = None
+
+        async for output in self._engine.generate(prompt, sampling_params, request_id):
+            final_output = output
+
+        if final_output is None or not final_output.outputs:
+            raise RuntimeError("vLLM returned empty output")
+
+        return final_output.outputs[0].text.strip()
+
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a single prompt."""
         sampling_params = self._build_sampling_params(**kwargs)
-        outputs = self._llm.generate([prompt], sampling_params)
+        request_id = str(uuid.uuid4())
 
-        if not outputs or not outputs[0].outputs:
-            raise RuntimeError("vLLM returned empty output")
-
-        return outputs[0].outputs[0].text.strip()
+        # Submit to the event loop and wait for result
+        future = asyncio.run_coroutine_threadsafe(
+            self._generate_async(prompt, request_id, sampling_params),
+            self._loop
+        )
+        return future.result()
 
     def generate_many(self, prompts: list[str], **kwargs) -> list[str]:
         """
-        Generate text from multiple prompts using vLLM's native batching.
+        Generate text from multiple prompts using concurrent async requests.
 
-        vLLM handles continuous batching internally for optimal throughput.
+        All requests are submitted to the AsyncLLMEngine concurrently,
+        allowing vLLM to batch them together for optimal GPU utilization.
         """
         if not prompts:
             return []
 
+        if len(prompts) == 1:
+            return [self.generate(prompts[0], **kwargs)]
+
         sampling_params = self._build_sampling_params(**kwargs)
-        outputs = self._llm.generate(prompts, sampling_params)
 
-        results = []
-        for output in outputs:
-            if output.outputs:
-                results.append(output.outputs[0].text.strip())
+        async def generate_all():
+            tasks = []
+            for i, prompt in enumerate(prompts):
+                request_id = f"{uuid.uuid4()}-{i}"
+                tasks.append(self._generate_async(prompt, request_id, sampling_params))
+            return await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Submit all requests concurrently
+        future = asyncio.run_coroutine_threadsafe(generate_all(), self._loop)
+        results = future.result()
+
+        # Process results, converting exceptions to error strings
+        processed = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Error generating prompt {i}: {result}")
+                processed.append(f"[ERROR] {result}")
             else:
-                results.append("[ERROR] Empty output")
+                processed.append(result)
 
-        return results
+        return processed
 
     def close(self) -> None:
-        """Release vLLM resources."""
-        # vLLM doesn't have an explicit cleanup method
-        # but we can delete the reference to allow GC
-        if hasattr(self, '_llm'):
-            del self._llm
+        """Release vLLM resources and stop the event loop."""
+        if hasattr(self, '_loop') and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            if hasattr(self, '_loop_thread'):
+                self._loop_thread.join(timeout=5)
+
+        if hasattr(self, '_engine'):
+            del self._engine
+
         logger.debug("VLLMLocalBackend closed")
