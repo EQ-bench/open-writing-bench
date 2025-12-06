@@ -25,9 +25,10 @@ def main():
     parser = argparse.ArgumentParser(description="Run Creative Writing Benchmark (with iterations).")
     parser.add_argument("--test-model", required=True, help="The model name or identifier for the test model.")
     parser.add_argument("--test-provider", required=True,
-                        choices=["http", "openai", "vllm", "vllm_local", "llamacpp", "llamacpp_local", "transformers", "hf"],
+                        choices=["http", "openai", "vllm", "vllm_local", "llamacpp", "llamacpp_local",
+                                 "llama_cpp_python", "llama_cpp_server", "transformers", "hf"],
                         help="Backend for the test model. 'http'/'openai' use TEST_API_KEY/TEST_API_URL. "
-                             "'vllm'/'llamacpp'/'transformers' run locally.")
+                             "'vllm'/'llama_cpp_python'/'llama_cpp_server'/'transformers' run locally.")
 
     parser.add_argument("--judge-models", required=True, help="Comma-delimited list of judge model names (supports duplicates for stacking).")
     parser.add_argument("--run-id", help="Optional: Resume or create a run with this ID")
