@@ -7,6 +7,7 @@ name = "open-writing-bench"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+  # Core dependencies
   "alembic>=1.17.0",
   "joblib>=1.5.2",
   "nltk>=3.9.2",
@@ -21,20 +22,18 @@ dependencies = [
   "trueskill>=0.4.5",
   "wordfreq>=3.1.1",
   "hf_transfer",
-  # Inference backends
-  "vllm>=0.6.0",
-  "llama-cpp-python>=0.3.0",
+  # Transformers backend (installed via uv)
   "transformers>=4.45.0",
   "torch>=2.0.0",
   "accelerate>=0.30.0",
-  # Common model dependencies
-  "flash-attn>=2.5.0",
   "bitsandbytes>=0.43.0",
   "sentencepiece>=0.2.0",
   "protobuf>=4.25.0",
   "safetensors>=0.4.0",
   "huggingface-hub>=0.24.0",
   "tokenizers>=0.19.0",
+  # Note: vllm, llama-cpp-python, flash-attn require manual installation
+  # See INSTALL.md for instructions
 ]
 
 [project.scripts]
@@ -52,9 +51,3 @@ py-modules = ["open_writing_bench", "creative_writing_bench"]
 
 [tool.uv]
 package = true
-# Build packages sequentially to avoid resource exhaustion
-concurrent-builds = 1
-
-# flash-attn requires torch at build time but doesn't declare it
-[tool.uv.extra-build-dependencies]
-flash-attn = ["torch"]
