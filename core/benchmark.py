@@ -32,13 +32,18 @@ from core.scoring import (
 from core.elo import run_elo_analysis_creative
 from core.analysis import analyze_task, aggregate_analyses, format_analysis_summary
 
-def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str]):
+def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str], ensemble_mode: str = 'vote_avg'):
     """
     Gathers all completed tasks from the DB for the run, aggregates their final
     scores, performs bootstrap analysis, and saves the results to the run record.
+
+    Args:
+        run_key: The run key identifier
+        negative_criteria: List of criteria names that are negative (lower is better)
+        ensemble_mode: One of 'vote_avg', 'vote_maj', or 'split'
     """
-    logging.info(f"Aggregating ensemble scores for run {run_key}...")    
-    aggregate_ensemble_scores_bulk(run_key, aggregation_method='average_with_outlier_removal')
+    logging.info(f"Aggregating ensemble scores for run {run_key} with mode '{ensemble_mode}'...")
+    aggregate_ensemble_scores_bulk(run_key, ensemble_mode=ensemble_mode)
 
 
     logging.info(f"Calculating final benchmark results for run {run_key}...")
@@ -88,7 +93,8 @@ def run_eq_bench_creative(
     vllm_params_file: Optional[str],
     backend_config: Optional[Dict[str, Any]] = None,
     multiturn: bool = False,
-    num_chapters: int = DEFAULT_NUM_CHAPTERS
+    num_chapters: int = DEFAULT_NUM_CHAPTERS,
+    ensemble_mode: str = 'vote_avg'
 ) -> str:
     """
     Main function to run the creative writing benchmark using the database.
@@ -110,6 +116,7 @@ def run_eq_bench_creative(
         backend_config: Backend-specific configuration dict (e.g., tensor_parallel_size)
         multiturn: If True, use multi-turn generation (planning + chapters)
         num_chapters: Number of chapters for multi-turn mode (default 4)
+        ensemble_mode: Ensemble judging mode - 'vote_avg' (default), 'vote_maj', or 'split'
 
     Returns:
         The run_key for this benchmark run
@@ -130,6 +137,7 @@ def run_eq_bench_creative(
         "backend_config": backend_config,
         "multiturn": multiturn,
         "num_chapters": num_chapters if multiturn else None,
+        "ensemble_mode": ensemble_mode,
     }
 
     db.get_or_create_run(run_key, test_model, run_config)
@@ -257,15 +265,26 @@ def run_eq_bench_creative(
     logging.info("Starting judging phase...")
     tasks_to_judge = db.get_tasks_for_run(run_key, status_filter='generated')
     if tasks_to_judge:
+        # Sort tasks by ID for reproducibility (important for split mode)
+        tasks_to_judge = sorted(tasks_to_judge, key=lambda t: t.id)
+
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
-            for task in tasks_to_judge:
+            for idx, task in enumerate(tasks_to_judge):
                 prompt_obj = creative_prompts[task.prompt_id]
                 base_prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
                 task_controller = CreativeWritingTask(task)
+
+                # In split mode, assign each task to one judge (round-robin)
+                if ensemble_mode == 'split':
+                    assigned_judge_idx = idx % len(judge_models)
+                    task_judge_models = [judge_models[assigned_judge_idx]]
+                else:
+                    task_judge_models = judge_models
+
                 futures.append(executor.submit(
                     task_controller.judge,
-                    judge_models,
+                    task_judge_models,
                     judge_prompt_template,
                     creative_writing_criteria,
                     negative_criteria,
@@ -311,7 +330,7 @@ def run_eq_bench_creative(
         logging.info("No completed tasks for lexical analysis.")
 
     # --- 6. Final Scoring and ELO ---
-    compute_benchmark_results_creative(run_key, negative_criteria)
+    compute_benchmark_results_creative(run_key, negative_criteria, ensemble_mode=ensemble_mode)
 
     if run_elo:
         logging.info("Starting ELO analysis...")

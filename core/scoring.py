@@ -240,12 +240,67 @@ def aggregate_ensemble_scores(task_id: int, aggregation_method: str = 'average_w
         
         logging.debug(f"Aggregated scores for task {task_id}: {piece_score:.2f} from {len(judge_results)} judges")
 
-def aggregate_ensemble_scores_bulk(run_key: str, aggregation_method: str = 'average_with_outlier_removal'):
+def _aggregate_scores_vote_avg(metric_scores: Dict[str, List[float]]) -> Dict[str, float]:
+    """Average scores across judges (with outlier removal if >= 3 judges)."""
+    aggregated = {}
+    for metric, scores in metric_scores.items():
+        if len(scores) >= 3:
+            s = sorted(scores)
+            s = s[1:-1]  # drop min/max
+            avg = sum(s) / len(s)
+        else:
+            avg = sum(scores) / len(scores)
+        aggregated[metric] = round(avg, 2)
+    return aggregated
+
+
+def _aggregate_scores_vote_maj(metric_scores: Dict[str, List[float]]) -> Dict[str, float]:
+    """
+    Majority voting per metric. If multiple scores tie for most votes,
+    the highest score among the tied values wins.
+    Scores are rounded to integers for voting purposes.
+    """
+    from collections import Counter
+    aggregated = {}
+    for metric, scores in metric_scores.items():
+        if len(scores) == 1:
+            aggregated[metric] = round(scores[0], 2)
+        else:
+            # Round scores to integers for voting
+            rounded_scores = [round(s) for s in scores]
+            counter = Counter(rounded_scores)
+            # Find the max vote count
+            max_votes = max(counter.values())
+            # Get all scores with max votes
+            candidates = [score for score, count in counter.items() if count == max_votes]
+            # Pick the highest among tied candidates
+            winning_score = max(candidates)
+            aggregated[metric] = float(winning_score)
+    return aggregated
+
+
+def _aggregate_scores_split(metric_scores: Dict[str, List[float]]) -> Dict[str, float]:
+    """
+    Split mode: each task has only one judge, so just use that score directly.
+    (Same as simple average when there's only one score per metric.)
+    """
+    aggregated = {}
+    for metric, scores in metric_scores.items():
+        # In split mode, there should be only one score per metric
+        aggregated[metric] = round(scores[0], 2) if scores else 0.0
+    return aggregated
+
+
+def aggregate_ensemble_scores_bulk(run_key: str, ensemble_mode: str = 'vote_avg'):
     """
     Bulk-aggregate all 'judged' tasks for a run in one session:
       - pull all judge rows once
       - compute per-task aggregates in memory
       - bulk update Task rows
+
+    Args:
+        run_key: The run key identifier
+        ensemble_mode: One of 'vote_avg', 'vote_maj', or 'split'
     """
     from utils.db_schema import Task  # local import to avoid cycles
     with db.get_session() as session:
@@ -307,16 +362,13 @@ def aggregate_ensemble_scores_bulk(run_key: str, aggregation_method: str = 'aver
                 updates.append({"id": task_id, "status": "error", "aggregated_scores": {"error": "No valid judge scores"}})
                 continue
 
-            # aggregate per metric
-            aggregated_metrics: Dict[str, float] = {}
-            for metric, scores in metric_scores.items():
-                if aggregation_method == 'average_with_outlier_removal' and len(scores) >= 3:
-                    s = sorted(scores)
-                    s = s[1:-1]  # drop min/max
-                    avg = sum(s) / len(s)
-                else:
-                    avg = sum(scores) / len(scores)
-                aggregated_metrics[metric] = round(avg, 2)
+            # aggregate per metric based on ensemble_mode
+            if ensemble_mode == 'vote_maj':
+                aggregated_metrics = _aggregate_scores_vote_maj(metric_scores)
+            elif ensemble_mode == 'split':
+                aggregated_metrics = _aggregate_scores_split(metric_scores)
+            else:  # vote_avg (default)
+                aggregated_metrics = _aggregate_scores_vote_avg(metric_scores)
 
             # invert negatives and compute piece score
             inverted_scores = []
@@ -330,9 +382,10 @@ def aggregate_ensemble_scores_bulk(run_key: str, aggregation_method: str = 'aver
                 "piece_score_0_20": piece_score,
                 "per_metric": aggregated_metrics,
                 "n_judges": len(jr_list),
+                "ensemble_mode": ensemble_mode,
             }
             updates.append({"id": task_id, "aggregated_scores": aggregated_data, "status": "completed"})
 
         if updates:
             session.bulk_update_mappings(Task, updates)
-            logging.info(f"Aggregated and updated {len(updates)} tasks for run {run_key}")
+            logging.info(f"Aggregated and updated {len(updates)} tasks for run {run_key} using '{ensemble_mode}' mode")

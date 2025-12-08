@@ -46,6 +46,11 @@ def main():
     parser.add_argument("--backend-config", type=str, default=None,
                         help="JSON string or path to JSON file with backend-specific configuration. "
                              "Example: '{\"tensor_parallel_size\": 2}' or 'config/backend.json'")
+    parser.add_argument("--ensemble-mode", type=str, default="vote_avg",
+                        choices=["vote_avg", "vote_maj", "split"],
+                        help="Ensemble judging mode: 'vote_avg' averages scores across judges (default), "
+                             "'vote_maj' uses majority voting per metric, "
+                             "'split' distributes items across judges (no ensemble, depth 1).")
 
     args = parser.parse_args()
     os.environ["INSPECT_MAX_CONNECTIONS"] = str(args.threads)
@@ -104,7 +109,8 @@ def main():
         vllm_params_file=args.vllm_params_file,
         backend_config=backend_config,
         multiturn=True,
-        num_chapters=3
+        num_chapters=3,
+        ensemble_mode=args.ensemble_mode
     )
 
 
