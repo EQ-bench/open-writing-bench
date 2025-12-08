@@ -421,7 +421,7 @@ class CreativeWritingTask:
         creative_writing_criteria: List[str],
         negative_criteria: List[str],
         base_prompt: str,
-        max_chars_per_chapter: int = 3200
+        max_chars_per_chapter: int = 4000
     ):
         """
         Judges the generated piece with an ensemble of models.

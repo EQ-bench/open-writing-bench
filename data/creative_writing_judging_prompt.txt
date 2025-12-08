@@ -32,6 +32,8 @@ Scoring notes:
 
 - Do not use markdown in your response. Use the designated output format exactly.
 
+- Chapters may be truncated in the middle due to enforced constraints. This is expected; do not penalise it and simply evaluate what is there on its merits.
+
 - You are to write a comprehensive analysis of the piece, then give your scores.
 
 - For these criteria, lower is better:

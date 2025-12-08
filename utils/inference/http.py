@@ -44,6 +44,11 @@ class HTTPBackend(InferenceBackend):
         "top_k", "min_p", "repetition_penalty",
     }
 
+    # Parameters to exclude for specific API providers (by URL substring)
+    EXCLUDED_PARAMS_BY_PROVIDER = {
+        "generativelanguage.googleapis.com": {"min_p", "top_k", "repetition_penalty"},
+    }
+
     def __init__(
         self,
         model_name: str,
@@ -92,6 +97,13 @@ class HTTPBackend(InferenceBackend):
 
         logger.info(f"HTTPBackend initialized: model={model_name}, url={base_url}")
 
+    def _get_excluded_params(self) -> set[str]:
+        """Get parameters to exclude based on the API provider."""
+        for url_pattern, excluded in self.EXCLUDED_PARAMS_BY_PROVIDER.items():
+            if url_pattern in self.base_url:
+                return excluded
+        return set()
+
     def _build_payload(self, prompt: str, **kwargs) -> dict[str, Any]:
         """Build the request payload."""
         messages = []
@@ -104,8 +116,13 @@ class HTTPBackend(InferenceBackend):
             "messages": messages,
         }
 
-        # Add known generation params
+        # Get params to exclude for this provider
+        excluded_params = self._get_excluded_params()
+
+        # Add known generation params (excluding provider-specific unsupported ones)
         for param in self.KNOWN_GEN_PARAMS:
+            if param in excluded_params:
+                continue
             if param in kwargs and kwargs[param] is not None:
                 payload[param] = kwargs[param]
 
@@ -114,6 +131,8 @@ class HTTPBackend(InferenceBackend):
         if unknown:
             logger.debug(f"HTTPBackend.generate: passing through unknown params: {unknown}")
             for param in unknown:
+                if param in excluded_params:
+                    continue
                 if kwargs[param] is not None:
                     payload[param] = kwargs[param]
 

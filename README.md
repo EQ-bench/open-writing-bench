@@ -8,7 +8,7 @@ uv sync
 # make sure .env has DATABASE_URL
 # DATABASE_URL=postgresql+psycopg2://USER:PASS@HOST:5432/DBNAME
 
-uv ensure-db
+python alembic/ensure_db.py
 ```
 
 # Full db reset (warning! will wipe all data):

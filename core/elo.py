@@ -946,24 +946,25 @@ def run_elo_analysis_creative(
     # 7. Save newly generated comparisons to the DB
     if new_comparisons_generated_this_run_for_test_model:
         logging.info(f"[ELO-CW] Saving {len(new_comparisons_generated_this_run_for_test_model)} new comparisons to database.")
-        
-        # Convert to EloComparison objects and insert into DB
+
+        # Convert to EloComparison objects for bulk insert
+        elo_comparison_objects = []
         for comp in new_comparisons_generated_this_run_for_test_model:
             pair = comp.get("pair", {})
-            db.insert_elo_comparison({
-                "run_key": run_key,
-                "item_id": comp.get("item_id"),
-                "model_a": pair.get("test_model"),
-                "model_a_iteration_id": pair.get("test_model_iteration_id"),
-                "model_b": pair.get("neighbor_model"),
-                "model_b_iteration_id": pair.get("neighbor_model_iteration_id"),
-                "aggregated_judge_responses": comp.get("judge_responses", []),
-                "aggregated_plus_for_a": comp.get("plus_for_test", 0),
-                "aggregated_plus_for_b": comp.get("plus_for_other", 0),
-                "fraction_for_a": comp.get("fraction_for_test", 0.5),
-            })
+            elo_comparison_objects.append(EloComparison(
+                run_key=run_key,
+                item_id=comp.get("item_id"),
+                model_a=pair.get("test_model"),
+                model_a_iteration_id=pair.get("test_model_iteration_id"),
+                model_b=pair.get("neighbor_model"),
+                model_b_iteration_id=pair.get("neighbor_model_iteration_id"),
+                aggregated_judge_responses=comp.get("judge_responses", []),
+                aggregated_plus_for_a=comp.get("plus_for_test", 0),
+                aggregated_plus_for_b=comp.get("plus_for_other", 0),
+                fraction_for_a=comp.get("fraction_for_test", 0.5),
+            ))
 
-        
+        db.bulk_insert_elo_comparisons(elo_comparison_objects)
         logging.info(f"[ELO-CW] Successfully saved {len(new_comparisons_generated_this_run_for_test_model)} comparisons to DB.")
     else:
         logging.info(f"[ELO-CW] No new comparisons were generated for '{test_model}' in this run.")

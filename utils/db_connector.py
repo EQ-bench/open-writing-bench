@@ -112,10 +112,13 @@ class DBConnector:
             comp = EloComparison(**comparison_data)
             session.add(comp)
 
-    def bulk_insert_elo_comparisons(self, comparisons: List[EloComparison]):
-        """Bulk insert ELO comparisons."""
+    def bulk_insert_elo_comparisons(self, comparisons: List[EloComparison], batch_size: int = 100):
+        """Bulk insert ELO comparisons in batches to avoid query size limits."""
         with self.get_session() as session:
-            session.bulk_save_objects(comparisons)
+            for i in range(0, len(comparisons), batch_size):
+                batch = comparisons[i:i + batch_size]
+                session.bulk_save_objects(batch)
+                session.flush()
 
     def get_elo_ratings(self) -> Dict[str, EloRating]:
         with self.get_session() as session:
