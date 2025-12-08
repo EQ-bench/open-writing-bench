@@ -55,7 +55,7 @@ class CreativeWritingTask:
         db.update_task(self.db_task.id, {"status": "generating"})
 
         # Debug: print the prompt being sent
-        print(f"\n{'='*60}\nTask {self.db_task.id} - Prompt:\n{prompt}\n{'='*60}\n")
+        # print(f"\n{'='*60}\nTask {self.db_task.id} - Prompt:\n{prompt}\n{'='*60}\n")
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
@@ -232,7 +232,7 @@ class CreativeWritingTask:
             prompt = self._format_messages_as_prompt(messages)
 
             # Debug: print the prompt being sent
-            print(f"\n{'='*60}\nTask {self.db_task.id} Turn {turn_idx} - Prompt:\n{prompt}\n{'='*60}\n")
+            # print(f"\n{'='*60}\nTask {self.db_task.id} Turn {turn_idx} - Prompt:\n{prompt}\n{'='*60}\n")
 
             # Generate with retries
             success = False
