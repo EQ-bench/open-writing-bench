@@ -45,13 +45,14 @@ SAMPLING_SCHEDULE = [
 
     # stage‑2 – first zoom‑in
     ((1, 2, 3), 4),  # Sample 4 from rank +/-1, 2 from +/-2, 1 from +/-3
-    ((1, 2, 3), 8),  # Sample 8 from rank +/-1, 4 from +/-2, 2 from +/-3
+    #((1, 2, 3), 8),  # Sample 8 from rank +/-1, 4 from +/-2, 2 from +/-3
     ((1, 2, 3), 16), # Sample 16 from rank +/-1, 8 from +/-2, 4 from +/-3
+    ((1, 2, 3), 100),
     #((1, 2, 3), 32), # Sample 16 from rank +/-1, 8 from +/-2, 4 from +/-3
 
     # stage‑3 – comprehensive zoom (many samples from close neighbors)
     
-    ((1, 2, 3), 48), # 9999 effectively means "all available" for CW's item/iteration structure
+    #((1, 2, 3), 48), # 9999 effectively means "all available" for CW's item/iteration structure
     #((1, 2, 3), 9999),
 ]
 MAX_STAGE_LOOPS = 4  # Safety guard per stage (loops until rank stabilizes or max_loops)
