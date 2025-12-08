@@ -175,7 +175,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     email: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     auth_provider: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    auth_subject: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    auth_subject: Mapped[Optional[str]] = mapped_column(String, nullable=True, unique=True)
     created_at: Mapped[Optional[DateTime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -342,13 +342,18 @@ def cleanup_after_job(config: SchedulerConfig):
 
     if config.clear_hf_cache:
         logger.info("Clearing HuggingFace cache...")
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        if cache_dir.exists():
-            try:
-                shutil.rmtree(cache_dir)
-                logger.info("HuggingFace cache cleared")
-            except Exception as e:
-                logger.warning(f"Failed to clear HF cache: {e}")
+        cache_dirs = [
+            Path.home() / ".cache" / "huggingface" / "hub",
+            Path.home() / ".hf_home" / "hub",
+            Path.home() / ".hf_home" / "xet",
+        ]
+        for cache_dir in cache_dirs:
+            if cache_dir.exists():
+                try:
+                    shutil.rmtree(cache_dir)
+                    logger.info(f"Cleared cache: {cache_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clear {cache_dir}: {e}")
 
 
 def get_next_submission() -> Optional[Submission]:
