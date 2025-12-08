@@ -34,7 +34,7 @@ from .config import SchedulerConfig, load_config
 load_dotenv()
 
 from utils.db_connector import db
-from utils.db_schema import Submission, SubmissionStatus, RunLog, EventLog, Run
+from utils.db_schema import Submission, SubmissionStatus, RunLog, EventLog, Run, EloRating
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +367,13 @@ def get_next_submission() -> Optional[Submission]:
         return submission
 
 
+def check_model_already_rated(model_id: str) -> bool:
+    """Check if a model already has an ELO rating in the database."""
+    with db.get_session() as session:
+        existing = session.get(EloRating, model_id)
+        return existing is not None
+
+
 def mark_submission_starting(submission_id: str) -> str:
     """Mark a submission as STARTING and return the run_key."""
     with db.get_session() as session:
@@ -527,6 +534,14 @@ class Scheduler:
         print(f"Model: {model_id}")
         print("-" * 60)
         logger.info(f"Processing submission {submission_id} (model: {model_id})")
+
+        # Check if model already has an ELO rating
+        if check_model_already_rated(model_id):
+            error_msg = f"Model '{model_id}' already has an ELO rating in the database. Duplicate submissions are not allowed."
+            print(f"[SKIPPED] {error_msg}")
+            logger.warning(error_msg)
+            mark_submission_failed(submission_id, error_msg, self.config)
+            return True
 
         try:
             run_key = mark_submission_starting(submission_id)
