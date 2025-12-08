@@ -312,11 +312,11 @@ def cleanup_after_job(config: SchedulerConfig):
 
 
 def get_next_submission() -> Optional[Submission]:
-    """Get the next queued submission to process."""
+    """Get the next submission to process (SUBMITTED or QUEUED status)."""
     with db.get_session() as session:
         submission = session.execute(
             select(Submission)
-            .where(Submission.status == SubmissionStatus.QUEUED)
+            .where(Submission.status.in_([SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED]))
             .order_by(Submission.priority_score.desc(), Submission.created_at.asc())
             .limit(1)
         ).scalar_one_or_none()
