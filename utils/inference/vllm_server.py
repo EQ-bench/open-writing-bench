@@ -313,6 +313,11 @@ class VLLMServerBackend(InferenceBackend):
             if kwargs.get(param):
                 cmd.append(flag)
 
+        # Suppress verbose prompt/output logging
+        cmd.append("--disable-log-requests")
+        cmd.append("--max-log-len")
+        cmd.append("0")
+
         # Extra CLI args (passed through directly)
         if extra_args:
             cmd.extend(extra_args)

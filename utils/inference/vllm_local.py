@@ -126,6 +126,8 @@ class VLLMLocalBackend(InferenceBackend):
             "gpu_memory_utilization": gpu_memory_utilization,
             "dtype": dtype,
             "trust_remote_code": False,
+            "disable_log_requests": True,
+            "max_log_len": 0,
         }
 
         if max_model_len is not None:
