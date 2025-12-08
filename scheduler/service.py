@@ -90,6 +90,8 @@ class JobRunner:
         self._stderr_buffer: list[str] = []
         self._lock = threading.Lock()
         self._stop_flag = threading.Event()
+        self._last_printed_stdout = 0
+        self._last_printed_stderr = 0
 
     def _build_command(self, submission: Submission) -> list[str]:
         """Build the CLI command from submission params."""
@@ -152,13 +154,17 @@ class JobRunner:
                     break
                 with self._lock:
                     buffer.append(line)
+                # In verbose mode, print job output to console immediately
+                if self.config.verbose:
+                    prefix = "[JOB]" if name == "stdout" else "[JOB ERR]"
+                    print(f"{prefix} {line}", end="", flush=True)
         except Exception as e:
             logger.error(f"Error reading {name}: {e}")
         finally:
             stream.close()
 
     def _write_logs_to_db(self, run_key: str):
-        """Write accumulated logs to the run_logs table."""
+        """Write accumulated logs to the run_logs table (upsert by run_key + stream)."""
         with self._lock:
             stdout_data = "".join(self._stdout_buffer)
             stderr_data = "".join(self._stderr_buffer)
@@ -169,20 +175,46 @@ class JobRunner:
         try:
             with db.get_session() as session:
                 now = datetime.now(timezone.utc)
+
+                # Upsert stdout log
                 if stdout_data:
-                    session.add(RunLog(
-                        run_key=run_key,
-                        ts=now,
-                        stream="stdout",
-                        data=stdout_data
-                    ))
+                    existing_stdout = session.execute(
+                        select(RunLog).where(
+                            RunLog.run_key == run_key,
+                            RunLog.stream == "stdout"
+                        )
+                    ).scalar_one_or_none()
+
+                    if existing_stdout:
+                        existing_stdout.data = stdout_data
+                        existing_stdout.ts = now
+                    else:
+                        session.add(RunLog(
+                            run_key=run_key,
+                            ts=now,
+                            stream="stdout",
+                            data=stdout_data
+                        ))
+
+                # Upsert stderr log
                 if stderr_data:
-                    session.add(RunLog(
-                        run_key=run_key,
-                        ts=now,
-                        stream="stderr",
-                        data=stderr_data
-                    ))
+                    existing_stderr = session.execute(
+                        select(RunLog).where(
+                            RunLog.run_key == run_key,
+                            RunLog.stream == "stderr"
+                        )
+                    ).scalar_one_or_none()
+
+                    if existing_stderr:
+                        existing_stderr.data = stderr_data
+                        existing_stderr.ts = now
+                    else:
+                        session.add(RunLog(
+                            run_key=run_key,
+                            ts=now,
+                            stream="stderr",
+                            data=stderr_data
+                        ))
         except Exception as e:
             logger.error(f"Failed to write logs to DB: {e}")
 
@@ -203,7 +235,11 @@ class JobRunner:
         except ValueError as e:
             return False, str(e)
 
-        logger.info(f"Starting job {run_key}: {' '.join(cmd)}")
+        logger.info(f"Starting job {run_key}")
+        logger.debug(f"Command: {' '.join(cmd)}")
+        print(f"Command: {' '.join(cmd[:6])}...")  # Show truncated command
+        if self.config.verbose:
+            print(f"Full command: {' '.join(cmd)}")
 
         # Start the subprocess
         try:
@@ -215,7 +251,10 @@ class JobRunner:
                 bufsize=1,  # Line buffered
                 cwd=Path(__file__).parent.parent,  # Run from project root
             )
+            logger.info(f"Subprocess started with PID {self._process.pid}")
+            print(f"Process started (PID: {self._process.pid})")
         except Exception as e:
+            logger.error(f"Failed to start process: {e}")
             return False, f"Failed to start process: {e}"
 
         # Start reader threads
@@ -474,35 +513,56 @@ class Scheduler:
         Returns:
             True if a job was processed, False if queue was empty.
         """
+        logger.debug("Checking for pending submissions...")
         submission = get_next_submission()
         if not submission:
+            logger.debug("No pending submissions found")
             return False
 
         submission_id = submission.id
-        logger.info(f"Processing submission {submission_id}")
+        model_id = submission.params.get("modelId", "unknown") if submission.params else "unknown"
+        print()
+        print("-" * 60)
+        print(f"Found submission: {submission_id}")
+        print(f"Model: {model_id}")
+        print("-" * 60)
+        logger.info(f"Processing submission {submission_id} (model: {model_id})")
 
         try:
             run_key = mark_submission_starting(submission_id)
+            logger.info(f"Submission {submission_id} marked as STARTING")
             mark_submission_running(submission_id)
+            logger.info(f"Submission {submission_id} marked as RUNNING")
+            print(f"Job started at {datetime.now(timezone.utc).isoformat()}")
+            print()
 
             success, error_msg = self.runner.run(submission)
 
+            print()
             if success:
                 mark_submission_succeeded(submission_id)
+                print(f"[SUCCESS] Submission {submission_id} completed successfully")
                 logger.info(f"Submission {submission_id} completed successfully")
             elif "Timeout" in error_msg:
                 mark_submission_timeout(submission_id)
+                print(f"[TIMEOUT] Submission {submission_id} timed out")
                 logger.warning(f"Submission {submission_id} timed out")
             else:
                 mark_submission_failed(submission_id, error_msg, self.config)
+                print(f"[FAILED] Submission {submission_id} failed: {error_msg[:200]}")
                 logger.error(f"Submission {submission_id} failed: {error_msg}")
 
         except Exception as e:
             logger.exception(f"Unexpected error processing submission {submission_id}")
+            print(f"[ERROR] Unexpected error: {e}")
             mark_submission_failed(submission_id, str(e), self.config)
 
         finally:
+            print()
+            print("Cleaning up...")
             cleanup_after_job(self.config)
+            print("Cleanup complete.")
+            print("-" * 60)
 
         return True
 
@@ -511,9 +571,15 @@ class Scheduler:
         signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
+        print("=" * 60)
+        print("Open Writing Bench Scheduler")
+        print("=" * 60)
         logger.info("Scheduler started")
         logger.info(f"Poll interval: {self.config.poll_interval_sec}s")
         logger.info(f"Hard timeout: {self.config.hard_timeout_sec}s")
+        logger.info(f"Verbose mode: {self.config.verbose}")
+        print(f"Polling for jobs every {self.config.poll_interval_sec}s...")
+        print()
 
         while not self._shutdown.is_set():
             try:
@@ -521,6 +587,7 @@ class Scheduler:
 
                 if not job_processed:
                     # No job in queue, sleep before next poll
+                    logger.debug(f"No jobs in queue, sleeping {self.config.poll_interval_sec}s...")
                     self._shutdown.wait(timeout=self.config.poll_interval_sec)
                 # If a job was processed, immediately check for next job
 
@@ -529,6 +596,7 @@ class Scheduler:
                 self._shutdown.wait(timeout=self.config.poll_interval_sec)
 
         logger.info("Scheduler stopped")
+        print("\nScheduler stopped.")
 
 
 def main():
@@ -561,10 +629,16 @@ def main():
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True  # Override any existing config
     )
+    # Also set level on root logger explicitly
+    logging.getLogger().setLevel(log_level)
+    # And on our module logger
+    logger.setLevel(log_level)
 
     config = load_config(args.config)
+    config.verbose = args.verbose  # Pass verbose flag to config
 
     # Ensure only one scheduler runs
     lock = SchedulerLock()

@@ -27,6 +27,9 @@ class SchedulerConfig:
     clear_hf_cache: bool = True
     kill_vllm_processes: bool = True
 
+    # Runtime flags (set by CLI, not config file)
+    verbose: bool = False
+
     def __post_init__(self):
         if self.default_judges is None:
             self.default_judges = ["grok-4.1-fast", "claude-haiku-4.5", "kimi-k2-0905"]
