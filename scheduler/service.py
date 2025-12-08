@@ -139,6 +139,7 @@ class JobRunner:
             "--threads", str(self.config.default_threads),
             "--verbosity", self.config.default_verbosity,
             "--run-id", submission.id,  # Use submission ID as run ID
+            "--ensemble-mode", "split",  # Distribute tasks across judges
         ]
 
         if backend_config:
