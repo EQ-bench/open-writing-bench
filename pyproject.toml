@@ -42,6 +42,7 @@ dependencies = [
 [project.scripts]
 bench = "open_writing_bench:main"
 ensure-db = "alembic.ensure_db:main"
+scheduler = "scheduler.service:main"
 
 # Only install the Python packages you actually import.
 [project.optional-dependencies]
@@ -50,7 +51,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["core", "core.analysis", "utils", "utils.inference", "alembic"]
+include = ["core", "core.analysis", "utils", "utils.inference", "alembic", "scheduler"]
 exclude = ["config*", "data*"]
 
 # Also install top-level single-file modules as importable modules.
