@@ -39,6 +39,8 @@ class VLLMLocalBackend(InferenceBackend):
         "VLLM_USE_FLASHINFER_SAMPLER",
         "VLLM_USE_TRTLLM_ATTENTION",
         "CUDA_VISIBLE_DEVICES",
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
     }
 
     KNOWN_INIT_PARAMS = {

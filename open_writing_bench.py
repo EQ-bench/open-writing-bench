@@ -10,12 +10,27 @@ import logging
 import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+
+# Load .env early, before any HuggingFace imports
+load_dotenv()
+
+# Set up HuggingFace authentication if HF_TOKEN is available
+# This must happen before importing transformers/vllm
+_hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+if _hf_token:
+    # huggingface_hub respects HF_TOKEN env var automatically,
+    # but we can also do programmatic login for extra safety
+    try:
+        from huggingface_hub import login
+        login(token=_hf_token, add_to_git_credential=False)
+    except ImportError:
+        pass  # huggingface_hub not installed, rely on env var
+    except Exception:
+        pass  # Login failed, continue anyway - env var should work
+
 from utils.logging_setup import setup_logging, get_verbosity
 from utils.db_connector import db
 from utils.pretty_print import print_postrun_displays
-
-
-load_dotenv()
 
 def signal_handler(signum, frame):
     print(f"\n[DEBUG] Signal {signum} caught! Stopping gracefully.")
