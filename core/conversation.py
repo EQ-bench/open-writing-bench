@@ -422,7 +422,7 @@ class CreativeWritingTask:
         negative_criteria: List[str],
         base_prompt: str,
         max_chars_per_chapter: int = 4000,
-        lexical_stats: Optional[Dict[str, Any]] = None
+        lexical_stats: Optional[Dict[str, Any]] = None,
     ):
         """
         Judges the generated piece with an ensemble of models.
@@ -438,8 +438,8 @@ class CreativeWritingTask:
         judge results back to the database.
 
         Args:
-            lexical_stats: Optional dict with model-level lexical analysis stats
-                           (from run.results["lexical_analysis"]) to include in judge prompt
+            lexical_stats: Precomputed lexical stats for this task (from analyze_task).
+                          If not provided, stats will be computed on the fly.
         """
         if self.db_task.status != "generated":
             logging.warning(f"Cannot judge a task with status '{self.db_task.status}' (ID: {self.db_task.id})")
@@ -465,8 +465,11 @@ class CreativeWritingTask:
 
         db.update_task(self.db_task.id, {"status": "judging"})
 
-        # Format lexical stats for the prompt if available
+        # Use precomputed lexical stats, or compute on the fly if not provided
         from core.analysis.stats_formatter import format_stats_for_judge
+        if lexical_stats is None:
+            from core.analysis import analyze_task
+            lexical_stats = analyze_task(self.db_task)
         lexical_stats_str = format_stats_for_judge(lexical_stats) if lexical_stats else ""
 
         judge_results_to_insert = []

@@ -90,14 +90,14 @@ def format_stats_for_judge(
         rating = get_rating(avg_sentence_length, METRIC_CUTOFFS["avg_sentence_length"])
         line = f"- Avg Sentence Length: {avg_sentence_length:.1f} words ({rating})"
         if "extremely" in rating:
-            line += " - this is a pathological value and should be considered unreadable"
+            line += " - this is a pathological value and should indicate the text is unreadable"
         lines.append(line)
 
     if avg_paragraph_length is not None:
         rating = get_rating(avg_paragraph_length, METRIC_CUTOFFS["avg_paragraph_length"])
         line = f"- Avg Paragraph Length: {avg_paragraph_length:.1f} words ({rating})"
         if "extremely" in rating:
-            line += " - this is a pathological value and should be considered unreadable"
+            line += " - this is a pathological value and should indicate the text is unreadable"
         lines.append(line)
 
     if mattr_500 is not None:

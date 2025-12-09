@@ -183,7 +183,9 @@ def run_eq_bench_creative(
 
     # --- 3. Generation Phase ---
     logging.info("Starting generation phase...")
+    # Include 'generating' status to resume interrupted multi-turn generations
     tasks_to_generate = db.get_tasks_for_run(run_key, status_filter='initialized')
+    tasks_to_generate.extend(db.get_tasks_for_run(run_key, status_filter='generating'))
     if tasks_to_generate:
         # Ensure backend connection pool matches thread concurrency
         effective_backend_config = backend_config.copy() if backend_config else {}
@@ -281,6 +283,8 @@ def run_eq_bench_creative(
     generated_tasks_for_analysis.extend(db.get_tasks_for_run(run_key, status_filter='judged'))
     generated_tasks_for_analysis.extend(db.get_tasks_for_run(run_key, status_filter='completed'))
 
+    # Build per-task lexical stats dict for use in judging
+    task_lexical_stats: Dict[str, Any] = {}
     if generated_tasks_for_analysis:
         analyses = []
         for task in generated_tasks_for_analysis:
@@ -288,6 +292,7 @@ def run_eq_bench_creative(
                 analysis = analyze_task(task)
                 if analysis:
                     analyses.append(analysis)
+                    task_lexical_stats[task.id] = analysis
             except Exception as e:
                 logging.warning(f"Lexical analysis failed for task {task.id}: {e}")
 
@@ -312,13 +317,6 @@ def run_eq_bench_creative(
         # Sort tasks by ID for reproducibility (important for split mode)
         tasks_to_judge = sorted(tasks_to_judge, key=lambda t: t.id)
 
-        # Get lexical stats for this model (just computed above, or from previous runs)
-        model_lexical_stats = db.get_lexical_stats_for_model(test_model)
-        if model_lexical_stats:
-            logging.info(f"Found lexical stats for model {test_model}, including in judge prompts")
-        else:
-            logging.info(f"No lexical stats found for model {test_model}")
-
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
             for idx, task in enumerate(tasks_to_judge):
@@ -333,6 +331,9 @@ def run_eq_bench_creative(
                 else:
                     task_judge_models = judge_models
 
+                # Get precomputed lexical stats for this task
+                precomputed_stats = task_lexical_stats.get(task.id)
+
                 futures.append(executor.submit(
                     task_controller.judge,
                     task_judge_models,
@@ -340,7 +341,7 @@ def run_eq_bench_creative(
                     creative_writing_criteria,
                     negative_criteria,
                     base_prompt,
-                    lexical_stats=model_lexical_stats
+                    lexical_stats=precomputed_stats,
                 ))
 
             for future in tqdm(list(futures), desc="Judging creative pieces"):

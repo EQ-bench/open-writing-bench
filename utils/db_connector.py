@@ -148,7 +148,18 @@ class DBConnector:
                     Task.run_key == run_key,
                     Task.status.in_(['judged', 'completed'])
                 ).update({"status": "generated", "aggregated_scores": None}, synchronize_session='fetch')
-                logging.info(f"Reset {updated_tasks} tasks to 'generated' status")
+                logging.info(f"Reset {updated_tasks} tasks from 'judged'/'completed' to 'generated' status")
+
+                # Also reset 'error' tasks that have model_response/model_responses back to 'generated'
+                # (these may have failed during judging/aggregation, not generation)
+                from sqlalchemy import or_
+                updated_error_tasks = session.query(Task).filter(
+                    Task.run_key == run_key,
+                    Task.status == 'error',
+                    or_(Task.model_response.isnot(None), Task.model_responses.isnot(None))
+                ).update({"status": "generated", "aggregated_scores": None, "error_message": None}, synchronize_session='fetch')
+                if updated_error_tasks:
+                    logging.info(f"Reset {updated_error_tasks} error tasks (with generation data) to 'generated' status")
 
             # Delete ELO comparisons for this run
             deleted_elo = session.query(EloComparison).filter_by(run_key=run_key).delete()

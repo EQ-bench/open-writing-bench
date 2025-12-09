@@ -170,8 +170,8 @@ def aggregate_ensemble_scores(task_id: int, aggregation_method: str = 'average_w
                         metric_scores[metric].append(score)
         
         if not metric_scores:
-            logging.warning(f"No valid scores found for task {task_id}")
-            db.update_task(task_id, {"status": "error", "error_message": "No valid judge scores"})
+            # No valid scores - leave task in current status so it can be retried
+            logging.warning(f"No valid scores found for task {task_id}, leaving in current status for retry")
             return
         
         # Aggregate scores per metric
@@ -358,8 +358,9 @@ def aggregate_ensemble_scores_bulk(run_key: str, ensemble_mode: str = 'vote_avg'
                             metric_scores.setdefault(metric, []).append(score)
 
             if not metric_scores:
-                # mark error
-                updates.append({"id": task_id, "status": "error", "aggregated_scores": {"error": "No valid judge scores"}})
+                # No valid scores - leave task in 'judged' status so it can be retried
+                # (this can happen if judging was interrupted mid-way)
+                logging.warning(f"Task {task_id} has no valid judge scores, leaving in 'judged' status for retry")
                 continue
 
             # aggregate per metric based on ensemble_mode

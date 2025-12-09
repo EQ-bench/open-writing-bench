@@ -137,16 +137,16 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     writing_prompts: Dict[str, Any], # {item_id: {"writing_prompt": "..."}}
     judge_model: str,
     judge_client: Any, # LLMClient object
-    lexical_stats_a: Optional[Dict[str, Any]] = None,  # Model A's overall lexical stats
-    lexical_stats_b: Optional[Dict[str, Any]] = None,  # Model B's overall lexical stats
-    # item_order_idx=None # Original CW had this, seems for ordering within a batch
+    lexical_stats_a: Optional[Dict[str, Any]] = None,  # Precomputed stats for textA
+    lexical_stats_b: Optional[Dict[str, Any]] = None,  # Precomputed stats for textB
 ):
     """Core judging function from original CW elo.py.
 
     Args:
-        lexical_stats_a: Optional model-level lexical stats for model A (writer A0493)
-        lexical_stats_b: Optional model-level lexical stats for model B (writer A0488)
+        lexical_stats_a: Precomputed lexical stats for textA. If not provided, computed on the fly.
+        lexical_stats_b: Precomputed lexical stats for textB. If not provided, computed on the fly.
     """
+    from core.analysis import analyze_text
     from core.analysis.stats_formatter import format_stats_for_judge
 
     # If prompt_id is something like "77_3_1", extract the actual prompt ID part ("77")
@@ -160,9 +160,11 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     prompt_obj = writing_prompts[raw_prompt_id]
     writing_prompt_content = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
 
-    # Format lexical stats for each model
-    stats_a_str = format_stats_for_judge(lexical_stats_a, "WRITER A0493") if lexical_stats_a else ""
-    stats_b_str = format_stats_for_judge(lexical_stats_b, "WRITER A0488") if lexical_stats_b else ""
+    # Use precomputed stats, or compute on the fly if not provided
+    stats_a = lexical_stats_a if lexical_stats_a is not None else (analyze_text(textA) if textA else None)
+    stats_b = lexical_stats_b if lexical_stats_b is not None else (analyze_text(textB) if textB else None)
+    stats_a_str = format_stats_for_judge(stats_a, "WRITER A0493") if stats_a else ""
+    stats_b_str = format_stats_for_judge(stats_b, "WRITER A0488") if stats_b else ""
 
     final_prompt = pairwise_prompt_template.replace("{writing_prompt}", writing_prompt_content)
     final_prompt = final_prompt.replace("{model_a_analysis}", textA)
@@ -202,8 +204,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     writing_prompts: Dict[str, Any],
     judge_models: List[str],
     max_workers: int,
-    test_model_lexical_stats: Optional[Dict[str, Any]] = None,
-    neighbor_model_lexical_stats: Optional[Dict[str, Any]] = None,
+    text_lexical_stats: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Judges specific item-iteration pairs in parallel.
@@ -211,8 +212,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     Returns a list of comparison result dictionaries.
 
     Args:
-        test_model_lexical_stats: Optional model-level lexical stats for test_model
-        neighbor_model_lexical_stats: Optional model-level lexical stats for neighbor_model
+        text_lexical_stats: Dict mapping text content to precomputed lexical analysis.
     """
     comparisons_results: List[Dict[str, Any]] = []
     
@@ -240,6 +240,10 @@ def _judge_item_iteration_pairs_in_parallel_cw(
                 "score_A": test_score, "score_B": neigh_score
             }
 
+            # Look up precomputed lexical stats for these texts
+            stats_a = text_lexical_stats.get(textA) if text_lexical_stats else None
+            stats_b = text_lexical_stats.get(textB) if text_lexical_stats else None
+
             # For each judge in the ensemble, judge both forward and reverse
             for judge_idx, judge_name in enumerate(judge_models):
                 judge_client = get_client(judge_name, client_type='judge')
@@ -251,8 +255,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
                     textA, textB, item_id,
                     pairwise_prompt_template, writing_prompts,
                     judge_name, judge_client,
-                    test_model_lexical_stats,  # stats for A0493
-                    neighbor_model_lexical_stats  # stats for A0488
+                    stats_a, stats_b,
                 )
                 future_to_matchup_info[fwd_future] = {**match_info_base, "direction": "forward", "judge_name": judge_name, "judge_idx": judge_idx}
 
@@ -263,8 +266,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
                     textB, textA, item_id, # Swapped texts
                     pairwise_prompt_template, writing_prompts,
                     judge_name, judge_client,
-                    neighbor_model_lexical_stats,  # stats for A0493 (which is now neighbor)
-                    test_model_lexical_stats  # stats for A0488 (which is now test)
+                    stats_b, stats_a,  # Also swapped
                 )
                 future_to_matchup_info[rev_future] = {**match_info_base, "direction": "reversed", "judge_name": judge_name, "judge_idx": judge_idx}
 
@@ -633,7 +635,7 @@ def run_elo_analysis_creative(
                 model_data["creative_writing_rubric_score_agg"] = 0.0
             
             model_data["best_iteration"] = best_iter_id
-        
+
         # 3. Load existing ELO comparisons from DB
         all_comparisons_global = []
         db_comparisons = (
@@ -780,24 +782,24 @@ def run_elo_analysis_creative(
                 continue
 
             round_comparisons_from_judging: List[Dict[str, Any]] = []
-            
+
             # START OF PARALLEL OPPONENT PROCESSING MODIFICATION
-            # Define the worker function for processing one opponent
-            # This function will capture necessary variables from the outer scope like test_model, elo_snapshot, etc.
-            def _process_one_opponent(opponent_details: Tuple[str, int]) -> List[Dict[str, Any]]:
-                opponent_model_name, opponent_rank_in_full_ladder_for_opponent = opponent_details # Renamed to avoid clash
-                
-                logging.debug(f"[ELO-CW] Judging {test_model} (rank {rank_old_in_full_ladder}) vs {opponent_model_name} (rank {opponent_rank_in_full_ladder_for_opponent})")
-                
+            # Step 1: Build matchups for all opponents (sequentially - this is fast, just data manipulation)
+            def _build_matchups_for_opponent(opponent_details: Tuple[str, int]) -> Tuple[str, List[Tuple[str, str, str, float, str, str, float]]]:
+                """Build matchups for one opponent. Returns (opponent_name, matchups_list)."""
+                opponent_model_name, opponent_rank_in_full_ladder_for_opponent = opponent_details
+
+                logging.debug(f"[ELO-CW] Building matchups for {test_model} (rank {rank_old_in_full_ladder}) vs {opponent_model_name} (rank {opponent_rank_in_full_ladder_for_opponent})")
+
                 test_model_top_iters = get_top_n_iterations(test_model, MAX_ITERS_PER_MODEL_FOR_PAIRING)
                 opponent_top_iters = get_top_n_iterations(opponent_model_name, MAX_ITERS_PER_MODEL_FOR_PAIRING)
 
                 if not test_model_top_iters or not opponent_top_iters:
                     logging.debug(f"Skipping {opponent_model_name}, not enough iterations for {test_model} or opponent.")
-                    return []
+                    return (opponent_model_name, [])
 
                 matchups_for_this_opponent: List[Tuple[str, str, str, float, str, str, float]] = []
-                
+
                 current_opponent_depth = abs(opponent_rank_in_full_ladder_for_opponent - rank_old_in_full_ladder)
 
                 if radius_tiers == (None,):
@@ -807,9 +809,9 @@ def run_elo_analysis_creative(
                         comparisons_budget_for_opponent = samples_at_closest_tier
                     elif current_opponent_depth == 2:
                         comparisons_budget_for_opponent = max(1, samples_at_closest_tier // 2)
-                    else: 
+                    else:
                         comparisons_budget_for_opponent = max(1, samples_at_closest_tier // 4)
-                
+
                 logging.debug(f"[ELO-CW] Opponent: {opponent_model_name}, Depth: {current_opponent_depth}, Budget: {comparisons_budget_for_opponent} comparison pairs.")
 
                 test_model_all_items_texts_scores: Dict[str, List[Tuple[str, str, float]]] = defaultdict(list)
@@ -817,7 +819,7 @@ def run_elo_analysis_creative(
                     items, item_scores = get_iteration_details(test_model, tm_iter_id)
                     for item_id, text in items.items():
                         test_model_all_items_texts_scores[item_id].append((tm_iter_id, text, item_scores.get(item_id, 0.0)))
-                
+
                 opp_model_all_items_texts_scores: Dict[str, List[Tuple[str, str, float]]] = defaultdict(list)
                 for op_iter_id in opponent_top_iters:
                     items, item_scores = get_iteration_details(opponent_model_name, op_iter_id)
@@ -876,43 +878,64 @@ def run_elo_analysis_creative(
                         if len(matchups_for_this_opponent) >= comparisons_budget_for_opponent:
                             break
 
-                if matchups_for_this_opponent:
-                    logging.info(f"[ELO-CW] Generating {len(matchups_for_this_opponent)} comparison pairs for {test_model} vs {opponent_model_name}.")
-                    # Get lexical stats for both models to include in judge prompts
-                    test_model_lexical_stats = db.get_lexical_stats_for_model(test_model)
-                    opponent_lexical_stats = db.get_lexical_stats_for_model(opponent_model_name)
-                    # The `concurrency` parameter from the main function is used here for inner workers, like EQBench.
-                    new_comps_for_opponent = _judge_item_iteration_pairs_in_parallel_cw(
-                        test_model, opponent_model_name,
-                        matchups_for_this_opponent,
+                return (opponent_model_name, matchups_for_this_opponent)
+
+            # Build all matchups sequentially (fast - just data manipulation)
+            all_opponent_matchups: List[Tuple[str, List[Tuple[str, str, str, float, str, str, float]]]] = []
+            for opp_details in opponents_to_process:
+                opponent_name, matchups = _build_matchups_for_opponent(opp_details)
+                if matchups:
+                    all_opponent_matchups.append((opponent_name, matchups))
+                    logging.info(f"[ELO-CW] Built {len(matchups)} comparison pairs for {test_model} vs {opponent_name}.")
+
+            # Step 2: Precompute lexical stats for ALL texts across all matchups (sequential, on main thread)
+            if all_opponent_matchups:
+                from core.analysis import analyze_text
+                text_lexical_stats: Dict[str, Any] = {}
+                all_texts_to_analyze = set()
+                for opponent_name, matchups in all_opponent_matchups:
+                    for item_id, tm_iter_id, tm_text, tm_score, op_iter_id, op_text, op_score in matchups:
+                        if tm_text:
+                            all_texts_to_analyze.add(tm_text)
+                        if op_text:
+                            all_texts_to_analyze.add(op_text)
+
+                logging.info(f"[ELO-CW] Precomputing lexical stats for {len(all_texts_to_analyze)} unique texts...")
+                for text in all_texts_to_analyze:
+                    try:
+                        text_lexical_stats[text] = analyze_text(text)
+                    except Exception as e:
+                        logging.warning(f"[ELO-CW] Lexical analysis failed: {e}")
+                logging.info(f"[ELO-CW] Lexical stats precomputation complete.")
+
+                # Step 3: Run judging in parallel for all opponents
+                def _judge_opponent(opponent_name: str, matchups: List[Tuple[str, str, str, float, str, str, float]]) -> List[Dict[str, Any]]:
+                    """Judge matchups for one opponent using precomputed lexical stats."""
+                    return _judge_item_iteration_pairs_in_parallel_cw(
+                        test_model, opponent_name,
+                        matchups,
                         pairwise_prompt_template, writing_prompts,
                         judge_models,
                         max_workers=concurrency,
-                        test_model_lexical_stats=test_model_lexical_stats,
-                        neighbor_model_lexical_stats=opponent_lexical_stats,
+                        text_lexical_stats=text_lexical_stats,
                     )
-                    return new_comps_for_opponent
-                return []
 
-            # Parallel execution of opponent processing
-            # The main `concurrency` parameter is used for the number of opponent tasks in parallel.
-            outer_workers = min(len(opponents_to_process), concurrency)
-            if opponents_to_process and outer_workers > 0:
+                outer_workers = min(len(all_opponent_matchups), concurrency)
                 with ThreadPoolExecutor(max_workers=outer_workers) as executor:
-                    future_to_opponent_details: Dict[Any, Tuple[str, int]] = {
-                        executor.submit(_process_one_opponent, opp_details): opp_details
-                        for opp_details in opponents_to_process
+                    future_to_opponent: Dict[Any, str] = {
+                        executor.submit(_judge_opponent, opponent_name, matchups): opponent_name
+                        for opponent_name, matchups in all_opponent_matchups
                     }
-                    for future in as_completed(future_to_opponent_details):
-                        opponent_details_completed = future_to_opponent_details[future]
+                    for future in as_completed(future_to_opponent):
+                        opponent_name = future_to_opponent[future]
                         try:
                             comps_from_opponent = future.result()
                             if comps_from_opponent:
                                 round_comparisons_from_judging.extend(comps_from_opponent)
                         except Exception as e:
-                            logging.error(f"[ELO-CW] Error processing opponent {opponent_details_completed[0]}: {e}", exc_info=True)
+                            logging.error(f"[ELO-CW] Error processing opponent {opponent_name}: {e}", exc_info=True)
             else:
-                logging.debug("[ELO-CW] No opponents to process in parallel this round or outer_workers is 0.")
+                logging.debug("[ELO-CW] No matchups to process this round.")
 
             # Update the set of matchups judged in this run *after* all parallel tasks for the round are complete.
             if round_comparisons_from_judging:

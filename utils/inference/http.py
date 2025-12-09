@@ -140,6 +140,15 @@ class HTTPBackend(InferenceBackend):
                 if kwargs[param] is not None:
                     payload[param] = kwargs[param]
 
+        # OpenRouter: disable reasoning for supported providers
+        if "openrouter.ai/api/v1" in self.base_url:
+            if self.model_name.startswith("anthropic/"):
+                print('anthropic no reasoning')
+                payload["reasoning"] = {"max_tokens": 0}
+            elif self.model_name.startswith("openai/"):
+                print('openai no reasoning')
+                payload["reasoning"] = {"effort": "none"}
+
         return payload
 
     def _make_request(self, payload: dict[str, Any]) -> str:
