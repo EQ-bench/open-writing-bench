@@ -12,6 +12,8 @@ You are an expert in assessing creative writing. Your task is to score the quali
 
 [TEST MODEL RESPONSE END]
 
+{lexical_stats}
+
 [Task]
 
 You are an expert in assessing creative writing. Your task is to score the quality of the test model's response below, by several metrics, on a 0-20 scale.

@@ -74,10 +74,11 @@ class DBConnector:
         Searches through completed runs for this model and returns the
         lexical_analysis from the most recent run that has it.
         """
-        runs = self.get_runs_by_model(model_name)
-        for run in runs:
-            if run.results and "lexical_analysis" in run.results:
-                return run.results["lexical_analysis"]
+        with self.get_session() as session:
+            runs = session.query(Run).filter_by(test_model=model_name).order_by(Run.start_time.desc()).all()
+            for run in runs:
+                if run.results and "lexical_analysis" in run.results:
+                    return run.results["lexical_analysis"]
         return None
 
     def update_run(self, run_key: str, updates: Dict[str, Any]):

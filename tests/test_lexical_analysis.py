@@ -190,15 +190,15 @@ Second paragraph. Also two sentences.
 
 Third has one."""
         avg = compute_avg_paragraph_length(text)
-        # Para 1: 2 sentences, Para 2: 2 sentences, Para 3: 1 sentence
-        # Avg = (2+2+1)/3 = 1.67
-        assert 1 < avg < 3
+        # Para 1: 5 words, Para 2: 5 words, Para 3: 3 words
+        # Avg = (5+5+3)/3 = 4.33
+        assert 4 < avg < 5
 
     def test_avg_paragraph_length_single(self):
         """Test single paragraph with multiple sentences."""
         text = "First. Second. Third."
         avg = compute_avg_paragraph_length(text)
-        assert avg == 3.0
+        assert avg == 3.0  # 3 words
 
     def test_avg_paragraph_length_empty(self):
         """Test empty text."""

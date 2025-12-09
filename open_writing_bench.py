@@ -66,6 +66,8 @@ def main():
                         help="Ensemble judging mode: 'vote_avg' averages scores across judges (default), "
                              "'vote_maj' uses majority voting per metric, "
                              "'split' distributes items across judges (no ensemble, depth 1).")
+    parser.add_argument("--n-prompts", type=int, default=None,
+                        help="Limit the number of prompts to use from the creative prompts file.")
 
     args = parser.parse_args()
     os.environ["INSPECT_MAX_CONNECTIONS"] = str(args.threads)
@@ -125,7 +127,8 @@ def main():
         backend_config=backend_config,
         multiturn=True,
         num_chapters=3,
-        ensemble_mode=args.ensemble_mode
+        ensemble_mode=args.ensemble_mode,
+        n_prompts=args.n_prompts
     )
 
 

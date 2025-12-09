@@ -42,7 +42,7 @@ class LexicalAnalysis(TypedDict):
 
     # Length metrics
     avg_sentence_length: float  # words per sentence
-    avg_paragraph_length: float  # sentences per paragraph
+    avg_paragraph_length: float  # words per paragraph
 
     # Lexical diversity
     mattr_500: float  # Moving Average Type-Token Ratio with window 500
@@ -110,17 +110,17 @@ def compute_avg_sentence_length(text: str) -> float:
 
 
 def compute_avg_paragraph_length(text: str) -> float:
-    """Compute average paragraph length in sentences."""
+    """Compute average paragraph length in words."""
     paragraphs = _split_paragraphs(text)
     if not paragraphs:
         return 0.0
 
-    sentence_counts = []
+    word_counts = []
     for para in paragraphs:
-        sentences = _split_sentences(para)
-        sentence_counts.append(len(sentences))
+        words = para.split()
+        word_counts.append(len(words))
 
-    return sum(sentence_counts) / len(sentence_counts) if sentence_counts else 0.0
+    return sum(word_counts) / len(word_counts) if word_counts else 0.0
 
 
 def compute_mattr(tokens: list[str], window_size: int = 500) -> float:
@@ -299,7 +299,7 @@ def format_analysis_summary(analysis: LexicalAnalysis) -> str:
         f"    - Not-X-But-Y/1k chars: {analysis['not_x_but_y_per_1k_chars']:.3f}",
         f"  Vocab Level (zipf): {analysis['vocab_level']:.2f}",
         f"  Avg Sentence Length: {analysis['avg_sentence_length']:.1f} words",
-        f"  Avg Paragraph Length: {analysis['avg_paragraph_length']:.1f} sentences",
+        f"  Avg Paragraph Length: {analysis['avg_paragraph_length']:.1f} words",
         f"  MATTR-500: {analysis['mattr_500']:.3f}",
     ]
 

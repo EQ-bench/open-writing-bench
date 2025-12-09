@@ -94,7 +94,8 @@ def run_eq_bench_creative(
     backend_config: Optional[Dict[str, Any]] = None,
     multiturn: bool = False,
     num_chapters: int = DEFAULT_NUM_CHAPTERS,
-    ensemble_mode: str = 'vote_avg'
+    ensemble_mode: str = 'vote_avg',
+    n_prompts: Optional[int] = None
 ) -> str:
     """
     Main function to run the creative writing benchmark using the database.
@@ -148,6 +149,12 @@ def run_eq_bench_creative(
     judge_prompt_template = Path(judge_prompt_file).read_text(encoding='utf-8')
     with open(creative_prompts_file, 'r', encoding='utf-8') as f:
         creative_prompts = json.load(f)
+
+    # Limit prompts if n_prompts is specified
+    if n_prompts is not None and n_prompts > 0:
+        prompt_keys = list(creative_prompts.keys())[:n_prompts]
+        creative_prompts = {k: creative_prompts[k] for k in prompt_keys}
+        logging.info(f"Limited to {len(creative_prompts)} prompts (--n-prompts={n_prompts})")
 
     # --- 2. Prepare Tasks ---
     logging.info("Preparing tasks...")
@@ -265,20 +272,50 @@ def run_eq_bench_creative(
     else:
         logging.info("No tasks require generation.")
 
+    # --- 4. Lexical Analysis (before judging so stats are available for judge prompts) ---
+    logging.info("Running lexical analysis...")
+    generated_tasks_for_analysis = db.get_tasks_for_run(run_key, status_filter='generated')
+    # Also include already judged/completed tasks
+    generated_tasks_for_analysis.extend(db.get_tasks_for_run(run_key, status_filter='judged'))
+    generated_tasks_for_analysis.extend(db.get_tasks_for_run(run_key, status_filter='completed'))
 
-    # --- 4. Judging Phase ---
+    if generated_tasks_for_analysis:
+        analyses = []
+        for task in generated_tasks_for_analysis:
+            try:
+                analysis = analyze_task(task)
+                if analysis:
+                    analyses.append(analysis)
+            except Exception as e:
+                logging.warning(f"Lexical analysis failed for task {task.id}: {e}")
+
+        if analyses:
+            aggregated = aggregate_analyses(analyses)
+            logging.info(f"\n{format_analysis_summary(aggregated)}")
+
+            # Save to run results
+            current_run = db.get_run(run_key)
+            results_dict = current_run.results or {}
+            results_dict["lexical_analysis"] = dict(aggregated)
+            db.update_run(run_key, {"results": results_dict})
+        else:
+            logging.warning("No tasks available for lexical analysis.")
+    else:
+        logging.info("No generated tasks for lexical analysis.")
+
+    # --- 5. Judging Phase ---
     logging.info("Starting judging phase...")
     tasks_to_judge = db.get_tasks_for_run(run_key, status_filter='generated')
     if tasks_to_judge:
         # Sort tasks by ID for reproducibility (important for split mode)
         tasks_to_judge = sorted(tasks_to_judge, key=lambda t: t.id)
 
-        # Try to get existing lexical stats for this model (from previous runs)
+        # Get lexical stats for this model (just computed above, or from previous runs)
         model_lexical_stats = db.get_lexical_stats_for_model(test_model)
         if model_lexical_stats:
-            logging.info(f"Found existing lexical stats for model {test_model}, including in judge prompts")
+            logging.info(f"Found lexical stats for model {test_model}, including in judge prompts")
         else:
-            logging.info(f"No existing lexical stats found for model {test_model}")
+            logging.info(f"No lexical stats found for model {test_model}")
 
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
@@ -311,36 +348,6 @@ def run_eq_bench_creative(
                     logging.error(f"An error occurred during judging future execution: {e}", exc_info=True)
     else:
         logging.info("No tasks require judging.")
-
-    # --- 5. Lexical Analysis ---
-    logging.info("Running lexical analysis...")
-    completed_tasks_for_analysis = db.get_tasks_for_run(run_key, status_filter='judged')
-    # Also include already completed tasks
-    completed_tasks_for_analysis.extend(db.get_tasks_for_run(run_key, status_filter='completed'))
-
-    if completed_tasks_for_analysis:
-        analyses = []
-        for task in completed_tasks_for_analysis:
-            try:
-                analysis = analyze_task(task)
-                if analysis:
-                    analyses.append(analysis)
-            except Exception as e:
-                logging.warning(f"Lexical analysis failed for task {task.id}: {e}")
-
-        if analyses:
-            aggregated = aggregate_analyses(analyses)
-            logging.info(f"\n{format_analysis_summary(aggregated)}")
-
-            # Save to run results
-            current_run = db.get_run(run_key)
-            results_dict = current_run.results or {}
-            results_dict["lexical_analysis"] = dict(aggregated)
-            db.update_run(run_key, {"results": results_dict})
-        else:
-            logging.warning("No tasks available for lexical analysis.")
-    else:
-        logging.info("No completed tasks for lexical analysis.")
 
     # --- 6. Final Scoring and ELO ---
     compute_benchmark_results_creative(run_key, negative_criteria, ensemble_mode=ensemble_mode)

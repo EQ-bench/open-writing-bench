@@ -15,8 +15,8 @@ METRIC_CUTOFFS = {
     "slop_score": (0.1, 0.3, 0.45, 0.6),  # higher = more AI-like cliches
     "vocab_level": (5.0, 5.5, 5.75, 6.0),  # extremely high or low may hurt readability
     "avg_sentence_length": (8.5, 9.5, 18.0, 25.0),
-    "avg_paragraph_length": (2.0, 2.5, 3.5, 4.5),
-    "mattr_500": (0.42, 0.45, 0.58, 0.63),  # lexical diversity
+    "avg_paragraph_length": (30.0, 50.0, 150.0, 250.0),  # words per paragraph
+    "mattr_500": (0.42, 0.45, 0.58, 0.68),  # lexical diversity
 }
 
 
@@ -37,7 +37,7 @@ def get_rating(value: float, cutoffs: tuple) -> str:
     elif value <= low_max:
         return "low"
     elif value <= average_max:
-        return "average"
+        return "within normal range"
     elif value <= high_max:
         return "high"
     else:
@@ -75,24 +75,21 @@ def format_stats_for_judge(
     else:
         lines.append("[LEXICAL STATISTICS FOR THE ABOVE MODEL]")
 
-    lines.append("The following statistics represent overall averages across all outputs from this model, not just this specific piece:")
-    lines.append("")
-
     if slop_score is not None:
         rating = get_rating(slop_score, METRIC_CUTOFFS["slop_score"])
         lines.append(f"- Slop Score: {slop_score:.3f} ({rating}) - higher values indicate more AI-like cliches and overused phrases")
 
     if vocab_level is not None:
         rating = get_rating(vocab_level, METRIC_CUTOFFS["vocab_level"])
-        lines.append(f"- Vocabulary Level: {vocab_level:.2f} ({rating}) - average word frequency; extremely high or low may affect readability")
+        lines.append(f"- Vocabulary Level: {vocab_level:.2f} ({rating}) - extremely high or low may affect readability")
 
     if avg_sentence_length is not None:
         rating = get_rating(avg_sentence_length, METRIC_CUTOFFS["avg_sentence_length"])
-        lines.append(f"- Avg Sentence Length: {avg_sentence_length:.1f} words ({rating})")
+        lines.append(f"- Avg Sentence Length: {avg_sentence_length:.1f} words ({rating}) - extreme values indicate a pathological issue and should be considered unreadable")
 
     if avg_paragraph_length is not None:
         rating = get_rating(avg_paragraph_length, METRIC_CUTOFFS["avg_paragraph_length"])
-        lines.append(f"- Avg Paragraph Length: {avg_paragraph_length:.1f} sentences ({rating})")
+        lines.append(f"- Avg Paragraph Length: {avg_paragraph_length:.1f} sentences ({rating}) - extreme values indicate a pathological issue and should be considered unreadable")
 
     if mattr_500 is not None:
         rating = get_rating(mattr_500, METRIC_CUTOFFS["mattr_500"])

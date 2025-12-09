@@ -171,7 +171,7 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     final_prompt = final_prompt.replace("{model_b_lexical_stats}", stats_b_str)
 
     print(final_prompt)
-    
+
     response_text = ""
     try:
         # Use the judge_client directly
