@@ -143,6 +143,11 @@ def run_eq_bench_creative(
 
     db.get_or_create_run(run_key, test_model, run_config)
 
+    # If redo_judging is set, reset all judging data for this run
+    if redo_judging:
+        logging.info(f"Resetting all judging data for run {run_key}...")
+        db.reset_all_judging_for_run(run_key)
+
     # Load criteria and prompts from files (original logic)
     creative_writing_criteria = [line.strip() for line in Path(creative_criteria_file).read_text(encoding='utf-8').splitlines() if line.strip()]
     negative_criteria = [line.strip() for line in Path(negative_criteria_file).read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -171,9 +176,6 @@ def run_eq_bench_creative(
                     iteration_index=i,
                     status='initialized'
                 ))
-            elif redo_judging and existing_tasks_map[task_key].status in ['judged', 'completed']:
-                logging.info(f"Marking task for prompt {prompt_key} iter {i} for re-judging.")
-                db.reset_judging_for_task(existing_tasks_map[task_key].id) # Assumes new DB connector function
 
     if tasks_to_create:
         logging.info(f"Creating {len(tasks_to_create)} new tasks in the database.")

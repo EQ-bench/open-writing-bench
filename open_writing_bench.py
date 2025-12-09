@@ -49,7 +49,9 @@ def main():
     parser.add_argument("--run-id", help="Optional: Resume or create a run with this ID")
     parser.add_argument("--threads", type=int, default=4, help="Number of parallel threads.")
     parser.add_argument("--verbosity", choices=['DEBUG','INFO','WARNING','ERROR','CRITICAL'], default="INFO")
-    parser.add_argument("--redo-judging", action="store_true", default=False, help="Re-run the judge step on existing items.")
+    parser.add_argument("--redo-judging", action="store_true", default=False,
+                        help="Reset all judging data (scores, judge results, ELO matchups) and re-run from judging stage. "
+                             "If generation hasn't completed yet, the run continues normally from where it left off.")
     parser.add_argument("--creative-prompts-file", default="data/open-writing-bench-prompts.json")
     parser.add_argument("--criteria-file", default="data/creative_writing_criteria.txt")
     parser.add_argument("--negative-criteria-file", default="data/negative_criteria.txt")

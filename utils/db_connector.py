@@ -111,6 +111,62 @@ class DBConnector:
             session.query(JudgeResult).filter_by(task_id=task_id).delete()
             session.query(Task).filter_by(id=task_id).update({"status": "generated", "aggregated_scores": None})
 
+    def reset_all_judging_for_run(self, run_key: str):
+        """Resets all judging data for a run, preparing it to re-run from the judging stage.
+
+        This deletes:
+        - All JudgeResult entries for tasks in this run
+        - All EloComparison entries for this run
+        - EloRating entry for the test model
+        - Final scores from run results (benchmark_results)
+
+        And resets:
+        - Task statuses from 'judged'/'completed' back to 'generated'
+        - Task aggregated_scores to None
+        """
+        with self.get_session() as session:
+            # Get the run to find the test model
+            run = session.query(Run).filter_by(run_key=run_key).first()
+            if not run:
+                logging.warning(f"Run {run_key} not found, nothing to reset")
+                return
+
+            test_model = run.test_model
+
+            # Get all task IDs for this run
+            task_ids = [t.id for t in session.query(Task).filter_by(run_key=run_key).all()]
+
+            if task_ids:
+                # Delete all judge results for these tasks
+                deleted_judge_results = session.query(JudgeResult).filter(
+                    JudgeResult.task_id.in_(task_ids)
+                ).delete(synchronize_session='fetch')
+                logging.info(f"Deleted {deleted_judge_results} judge results for run {run_key}")
+
+                # Reset task statuses back to 'generated' (only for tasks that had generation completed)
+                updated_tasks = session.query(Task).filter(
+                    Task.run_key == run_key,
+                    Task.status.in_(['judged', 'completed'])
+                ).update({"status": "generated", "aggregated_scores": None}, synchronize_session='fetch')
+                logging.info(f"Reset {updated_tasks} tasks to 'generated' status")
+
+            # Delete ELO comparisons for this run
+            deleted_elo = session.query(EloComparison).filter_by(run_key=run_key).delete()
+            logging.info(f"Deleted {deleted_elo} ELO comparisons for run {run_key}")
+
+            # Delete ELO rating for the test model
+            deleted_rating = session.query(EloRating).filter_by(model_name=test_model).delete()
+            if deleted_rating:
+                logging.info(f"Deleted ELO rating for model {test_model}")
+
+            # Clear benchmark results from run (keep lexical_analysis)
+            if run.results:
+                results = dict(run.results)
+                if "benchmark_results" in results:
+                    del results["benchmark_results"]
+                    session.query(Run).filter_by(run_key=run_key).update({"results": results})
+                    logging.info(f"Cleared benchmark_results from run {run_key}")
+
     # --- ELO Management ---
     def get_all_elo_comparisons(self) -> List[EloComparison]:
         with self.get_session() as session:
