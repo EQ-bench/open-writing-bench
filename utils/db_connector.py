@@ -63,6 +63,23 @@ class DBConnector:
         with self.get_session() as session:
             return session.query(Run).filter_by(run_key=run_key).first()
 
+    def get_runs_by_model(self, model_name: str) -> List[Run]:
+        """Get all runs for a specific model, ordered by start time (newest first)."""
+        with self.get_session() as session:
+            return session.query(Run).filter_by(test_model=model_name).order_by(Run.start_time.desc()).all()
+
+    def get_lexical_stats_for_model(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """Get the most recent lexical analysis stats for a model.
+
+        Searches through completed runs for this model and returns the
+        lexical_analysis from the most recent run that has it.
+        """
+        runs = self.get_runs_by_model(model_name)
+        for run in runs:
+            if run.results and "lexical_analysis" in run.results:
+                return run.results["lexical_analysis"]
+        return None
+
     def update_run(self, run_key: str, updates: Dict[str, Any]):
         with self.get_session() as session:
             session.query(Run).filter_by(run_key=run_key).update(updates)

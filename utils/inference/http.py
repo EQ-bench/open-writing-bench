@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from .base import InferenceBackend
 
@@ -58,7 +59,7 @@ class HTTPBackend(InferenceBackend):
         timeout: int = 240,
         max_retries: int = 3,
         retry_delay: int = 5,
-        max_concurrent: int = 8,
+        max_concurrent: int = 64,
         **kwargs
     ):
         """
@@ -91,8 +92,11 @@ class HTTPBackend(InferenceBackend):
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-        # Session for connection pooling
+        # Session for connection pooling - size pool to match max_concurrent
         self._session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=max_concurrent, pool_maxsize=max_concurrent)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
         self._session.headers.update(self.headers)
 
         logger.info(f"HTTPBackend initialized: model={model_name}, url={base_url}")

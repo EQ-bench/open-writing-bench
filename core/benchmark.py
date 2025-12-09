@@ -176,10 +176,15 @@ def run_eq_bench_creative(
     logging.info("Starting generation phase...")
     tasks_to_generate = db.get_tasks_for_run(run_key, status_filter='initialized')
     if tasks_to_generate:
+        # Ensure backend connection pool matches thread concurrency
+        effective_backend_config = backend_config.copy() if backend_config else {}
+        if "max_concurrent" not in effective_backend_config:
+            effective_backend_config["max_concurrent"] = num_threads
+
         test_model_client = get_client(test_model, client_type='test',
                                vllm_params_file=vllm_params_file,
                                test_provider=test_provider,
-                               backend_config=backend_config)
+                               backend_config=effective_backend_config)
 
         if multiturn:
             # Multi-turn generation: planning + chapters
@@ -268,6 +273,13 @@ def run_eq_bench_creative(
         # Sort tasks by ID for reproducibility (important for split mode)
         tasks_to_judge = sorted(tasks_to_judge, key=lambda t: t.id)
 
+        # Try to get existing lexical stats for this model (from previous runs)
+        model_lexical_stats = db.get_lexical_stats_for_model(test_model)
+        if model_lexical_stats:
+            logging.info(f"Found existing lexical stats for model {test_model}, including in judge prompts")
+        else:
+            logging.info(f"No existing lexical stats found for model {test_model}")
+
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = []
             for idx, task in enumerate(tasks_to_judge):
@@ -288,7 +300,8 @@ def run_eq_bench_creative(
                     judge_prompt_template,
                     creative_writing_criteria,
                     negative_criteria,
-                    base_prompt
+                    base_prompt,
+                    lexical_stats=model_lexical_stats
                 ))
 
             for future in tqdm(list(futures), desc="Judging creative pieces"):

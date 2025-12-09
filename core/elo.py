@@ -137,9 +137,18 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     writing_prompts: Dict[str, Any], # {item_id: {"writing_prompt": "..."}}
     judge_model: str,
     judge_client: Any, # LLMClient object
+    lexical_stats_a: Optional[Dict[str, Any]] = None,  # Model A's overall lexical stats
+    lexical_stats_b: Optional[Dict[str, Any]] = None,  # Model B's overall lexical stats
     # item_order_idx=None # Original CW had this, seems for ordering within a batch
 ):
-    """ Core judging function from original CW elo.py. """
+    """Core judging function from original CW elo.py.
+
+    Args:
+        lexical_stats_a: Optional model-level lexical stats for model A (writer A0493)
+        lexical_stats_b: Optional model-level lexical stats for model B (writer A0488)
+    """
+    from core.analysis.stats_formatter import format_stats_for_judge
+
     # If prompt_id is something like "77_3_1", extract the actual prompt ID part ("77")
     # This logic is for accessing writing_prompts, which uses base IDs.
     raw_prompt_id = prompt_id.split("_", 1)[0] if "_" in prompt_id else prompt_id
@@ -151,9 +160,18 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     prompt_obj = writing_prompts[raw_prompt_id]
     writing_prompt_content = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
 
+    # Format lexical stats for each model
+    stats_a_str = format_stats_for_judge(lexical_stats_a, "WRITER A0493") if lexical_stats_a else ""
+    stats_b_str = format_stats_for_judge(lexical_stats_b, "WRITER A0488") if lexical_stats_b else ""
+
     final_prompt = pairwise_prompt_template.replace("{writing_prompt}", writing_prompt_content)
     final_prompt = final_prompt.replace("{model_a_analysis}", textA)
     final_prompt = final_prompt.replace("{model_b_analysis}", textB)
+    final_prompt = final_prompt.replace("{model_a_lexical_stats}", stats_a_str)
+    final_prompt = final_prompt.replace("{model_b_lexical_stats}", stats_b_str)
+
+    print(final_prompt)
+    
     response_text = ""
     try:
         # Use the judge_client directly
@@ -184,11 +202,17 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     writing_prompts: Dict[str, Any],
     judge_models: List[str],
     max_workers: int,
+    test_model_lexical_stats: Optional[Dict[str, Any]] = None,
+    neighbor_model_lexical_stats: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Judges specific item-iteration pairs in parallel.
     This adapts CW's _judge_items_in_parallel to operate on pre-selected item-iteration pairs.
     Returns a list of comparison result dictionaries.
+
+    Args:
+        test_model_lexical_stats: Optional model-level lexical stats for test_model
+        neighbor_model_lexical_stats: Optional model-level lexical stats for neighbor_model
     """
     comparisons_results: List[Dict[str, Any]] = []
     
@@ -219,22 +243,28 @@ def _judge_item_iteration_pairs_in_parallel_cw(
             # For each judge in the ensemble, judge both forward and reverse
             for judge_idx, judge_name in enumerate(judge_models):
                 judge_client = get_client(judge_name, client_type='judge')
-                
+
                 # Forward: (test_model_name vs neighbor_model_name)
+                # A0493 = test_model, A0488 = neighbor_model
                 fwd_future = executor.submit(
                     do_pairwise_judge_cw,
                     textA, textB, item_id,
                     pairwise_prompt_template, writing_prompts,
-                    judge_name, judge_client
+                    judge_name, judge_client,
+                    test_model_lexical_stats,  # stats for A0493
+                    neighbor_model_lexical_stats  # stats for A0488
                 )
                 future_to_matchup_info[fwd_future] = {**match_info_base, "direction": "forward", "judge_name": judge_name, "judge_idx": judge_idx}
 
                 # Reverse: (neighbor_model_name vs test_model_name)
+                # A0493 = neighbor_model, A0488 = test_model
                 rev_future = executor.submit(
                     do_pairwise_judge_cw,
                     textB, textA, item_id, # Swapped texts
                     pairwise_prompt_template, writing_prompts,
-                    judge_name, judge_client
+                    judge_name, judge_client,
+                    neighbor_model_lexical_stats,  # stats for A0493 (which is now neighbor)
+                    test_model_lexical_stats  # stats for A0488 (which is now test)
                 )
                 future_to_matchup_info[rev_future] = {**match_info_base, "direction": "reversed", "judge_name": judge_name, "judge_idx": judge_idx}
 
@@ -848,13 +878,18 @@ def run_elo_analysis_creative(
 
                 if matchups_for_this_opponent:
                     logging.info(f"[ELO-CW] Generating {len(matchups_for_this_opponent)} comparison pairs for {test_model} vs {opponent_model_name}.")
+                    # Get lexical stats for both models to include in judge prompts
+                    test_model_lexical_stats = db.get_lexical_stats_for_model(test_model)
+                    opponent_lexical_stats = db.get_lexical_stats_for_model(opponent_model_name)
                     # The `concurrency` parameter from the main function is used here for inner workers, like EQBench.
                     new_comps_for_opponent = _judge_item_iteration_pairs_in_parallel_cw(
                         test_model, opponent_model_name,
                         matchups_for_this_opponent,
                         pairwise_prompt_template, writing_prompts,
                         judge_models,
-                        max_workers=concurrency 
+                        max_workers=concurrency,
+                        test_model_lexical_stats=test_model_lexical_stats,
+                        neighbor_model_lexical_stats=opponent_lexical_stats,
                     )
                     return new_comps_for_opponent
                 return []

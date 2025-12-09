@@ -8,9 +8,13 @@ You are an expert in assessing creative writing. Your task is to *critically* ex
 {model_a_analysis}
 [/WRITER A0493]
 
+{model_a_lexical_stats}
+
 [WRITER A0488]
 {model_b_analysis}
 [/WRITER A0488]
+
+{model_b_lexical_stats}
 
 Compare the relative ability of each writer on these criteria:
 
