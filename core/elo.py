@@ -168,6 +168,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     judge_models: List[str],
     max_workers: int,
     text_lexical_stats: Optional[Dict[str, Any]] = None,
+    ensemble_mode: str = 'vote_avg',
 ) -> List[Dict[str, Any]]:
     """
     Judges specific item-iteration pairs in parallel.
@@ -190,7 +191,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         future_to_matchup_info: Dict[Any, Dict[str, Any]] = {}
 
-        for item_id, test_iter_id, test_text, test_score, neigh_iter_id, neigh_text, neigh_score in matchups_to_judge:
+        for matchup_idx, (item_id, test_iter_id, test_text, test_score, neigh_iter_id, neigh_text, neigh_score) in enumerate(matchups_to_judge):
             # Text is already truncated per-chapter during text loading
             textA = test_text
             textB = neigh_text
@@ -207,8 +208,16 @@ def _judge_item_iteration_pairs_in_parallel_cw(
             stats_a = text_lexical_stats.get(textA) if text_lexical_stats else None
             stats_b = text_lexical_stats.get(textB) if text_lexical_stats else None
 
-            # For each judge in the ensemble, judge both forward and reverse
-            for judge_idx, judge_name in enumerate(judge_models):
+            # In split mode, assign each matchup to one judge (round-robin)
+            # In other modes, use all judges for ensemble
+            if ensemble_mode == 'split':
+                assigned_judge_idx = matchup_idx % len(judge_models)
+                judges_for_this_matchup = [(assigned_judge_idx, judge_models[assigned_judge_idx])]
+            else:
+                judges_for_this_matchup = list(enumerate(judge_models))
+
+            # For each judge in the ensemble (or single judge in split mode), judge both forward and reverse
+            for judge_idx, judge_name in judges_for_this_matchup:
                 judge_client = get_client(judge_name, client_type='judge')
 
                 # Forward: (test_model_name vs neighbor_model_name)
@@ -504,7 +513,8 @@ def run_elo_analysis_creative(
     judge_models: List[str], # Now a list for ensemble
     writing_prompts: Dict[str, Any],
     concurrency: int,
-    disable_elo_reasoning: bool = False
+    disable_elo_reasoning: bool = False,
+    ensemble_mode: str = 'vote_avg',
 ) -> Tuple[Dict[str, Any], Optional[str]]:
     """
     Refactored ELO analysis for Creative Writing using TrueSkill, EQB3-style sampling, and DB storage.
@@ -512,6 +522,8 @@ def run_elo_analysis_creative(
 
     Args:
         disable_elo_reasoning: If True, remove chain-of-thought reasoning from pairwise prompts.
+        ensemble_mode: Ensemble judging mode - 'vote_avg', 'vote_maj', or 'split'.
+                      In 'split' mode, each pairwise comparison is assigned to one judge (round-robin).
     """
     logging.info(f"[ELO-CW] Starting ELO analysis for test_model: '{test_model}', run_key: '{run_key}' with {len(judge_models)} judges")
     elo_error_message: Optional[str] = None
@@ -949,6 +961,7 @@ def run_elo_analysis_creative(
                         judge_models,
                         max_workers=concurrency,
                         text_lexical_stats=text_lexical_stats,
+                        ensemble_mode=ensemble_mode,
                     )
 
                 outer_workers = min(len(all_opponent_matchups), concurrency)
@@ -1145,9 +1158,19 @@ def run_elo_analysis_creative(
             final_elo_results_snapshot[m_name]["ci_high_norm"] = round(norm_plus_bounds.get(f"{m_name}__ci_high", norm_elo_fallback), 2)
 
 
-    # 9. Save final ELO ratings to DB
-    db.upsert_elo_ratings(final_elo_results_snapshot)
-    logging.info(f"[ELO-CW] Successfully saved final ELO ratings to database")
+    # 9. Save final ELO ratings to DB - only for models that participated in comparisons
+    models_with_comparisons = models_in_comparisons_cw(all_comparisons_global)
+    ratings_to_save = {
+        m: data for m, data in final_elo_results_snapshot.items()
+        if m in models_with_comparisons
+    }
+
+    if ratings_to_save:
+        db.upsert_elo_ratings(ratings_to_save)
+        logging.info(f"[ELO-CW] Successfully saved ELO ratings for {len(ratings_to_save)} models with comparisons")
+    else:
+        logging.warning("[ELO-CW] No models with comparisons - skipping ELO rating save")
+
     logging.info(f"[ELO-CW] Test model '{test_model}' final ELO: {final_elo_results_snapshot.get(test_model, {}).get('elo', 'N/A')}, Norm ELO: {final_elo_results_snapshot.get(test_model, {}).get('elo_norm', 'N/A')}")
 
     return final_elo_results_snapshot, elo_error_message

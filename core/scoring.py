@@ -316,9 +316,9 @@ def aggregate_ensemble_scores_bulk(run_key: str, ensemble_mode: str = 'vote_avg'
 
         task_ids = [t.id for t in task_rows]
 
-        # load all judge results in one query
+        # load only needed columns from judge results (avoids loading raw_judge_text which is large)
         jrs = (
-            session.query(JudgeResult)
+            session.query(JudgeResult.task_id, JudgeResult.judge_order_index, JudgeResult.judge_scores)
             .filter(JudgeResult.task_id.in_(task_ids))
             .order_by(JudgeResult.task_id, JudgeResult.judge_order_index)
             .all()
@@ -337,8 +337,8 @@ def aggregate_ensemble_scores_bulk(run_key: str, ensemble_mode: str = 'vote_avg'
             negative_criteria = []
             logging.warning(f"Could not load negative criteria for run {run_key} from '{neg_path or 'data/negative_criteria.txt'}'")
 
-        # group results by task_id
-        by_task: Dict[int, List[JudgeResult]] = {}
+        # group results by task_id (jr is a named tuple with task_id, judge_order_index, judge_scores)
+        by_task: Dict[int, List[Any]] = {}
         for jr in jrs:
             by_task.setdefault(jr.task_id, []).append(jr)
 

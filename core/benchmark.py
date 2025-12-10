@@ -88,7 +88,8 @@ def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str
 
 
     logging.info(f"Calculating final benchmark results for run {run_key}...")
-    completed_tasks = db.get_tasks_for_run(run_key, status_filter='completed')
+    # Use lightweight query - only need aggregated_scores for scoring
+    completed_tasks = db.get_task_scores_for_run(run_key, status_filter='completed')
 
     if not completed_tasks:
         logging.warning(f"No completed tasks with aggregated scores found for run {run_key}.")
@@ -214,13 +215,15 @@ def run_eq_bench_creative(
 
     # --- 2. Prepare Tasks ---
     logging.info("Preparing tasks...")
-    existing_tasks_map = {f"{t.prompt_id}_{t.iteration_index}": t for t in db.get_tasks_for_run(run_key)}
+    # Use lightweight query - only need prompt_id and iteration_index to check existence
+    existing_task_keys = db.get_task_keys_for_run(run_key)
+    existing_tasks_set = {f"{t['prompt_id']}_{t['iteration_index']}" for t in existing_task_keys}
     tasks_to_create = []
 
     for prompt_key, prompt_obj in creative_prompts.items():
         for i in range(1, iterations + 1):
             task_key = f"{prompt_key}_{i}"
-            if task_key not in existing_tasks_map:
+            if task_key not in existing_tasks_set:
                 tasks_to_create.append(Task(
                     run_key=run_key,
                     prompt_id=prompt_key,
@@ -407,7 +410,29 @@ def run_eq_bench_creative(
     compute_benchmark_results_creative(run_key, negative_criteria, ensemble_mode=ensemble_mode)
 
     if run_elo:
-        logging.info("Starting ELO analysis...")
+        # Check task success rate before running ELO
+        completed_count = db.count_tasks_for_run(run_key, status_filter='completed')
+        expected_task_count = len(creative_prompts) * iterations
+        success_rate = completed_count / expected_task_count if expected_task_count > 0 else 0
+
+        if success_rate < 0.80:
+            error_msg = (
+                f"ELO analysis skipped: task success rate {success_rate:.1%} "
+                f"({completed_count}/{expected_task_count}) is below 80% threshold"
+            )
+            logging.error(error_msg)
+            # Update run with error
+            current_run = db.get_run(run_key)
+            results_dict = current_run.results or {}
+            bench_results = results_dict.get("benchmark_results", {})
+            bench_results["elo_raw"] = "Error"
+            bench_results["elo_normalized"] = "Error"
+            bench_results["elo_error"] = error_msg
+            results_dict["benchmark_results"] = bench_results
+            db.update_run(run_key, {"results": results_dict})
+            raise RuntimeError(error_msg)
+
+        logging.info(f"Starting ELO analysis... (task success rate: {success_rate:.1%})")
         try:
             # ELO function now reads from and writes to the database
             final_elo_snapshot, error_msg = run_elo_analysis_creative(
@@ -416,7 +441,8 @@ def run_eq_bench_creative(
                 judge_models=judge_models,
                 writing_prompts=creative_prompts,
                 concurrency=num_threads,
-                disable_elo_reasoning=disable_elo_reasoning
+                disable_elo_reasoning=disable_elo_reasoning,
+                ensemble_mode=ensemble_mode,
             )
 
             if error_msg:

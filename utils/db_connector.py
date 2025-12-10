@@ -93,6 +93,34 @@ class DBConnector:
                 query = query.filter_by(status=status_filter)
             return query.all()
 
+    def count_tasks_for_run(self, run_key: str, status_filter: Optional[str] = None) -> int:
+        """Count tasks for a run without loading full task data."""
+        from sqlalchemy import func as sqla_func
+        with self.get_session() as session:
+            query = session.query(sqla_func.count(Task.id)).filter_by(run_key=run_key)
+            if status_filter:
+                query = query.filter_by(status=status_filter)
+            return query.scalar() or 0
+
+    def get_task_keys_for_run(self, run_key: str) -> List[Dict[str, Any]]:
+        """Get only prompt_id and iteration_index for tasks in a run (lightweight)."""
+        with self.get_session() as session:
+            rows = (
+                session.query(Task.prompt_id, Task.iteration_index)
+                .filter_by(run_key=run_key)
+                .all()
+            )
+            return [{"prompt_id": r.prompt_id, "iteration_index": r.iteration_index} for r in rows]
+
+    def get_task_scores_for_run(self, run_key: str, status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get only aggregated_scores for tasks in a run (for scoring, avoids loading text)."""
+        with self.get_session() as session:
+            query = session.query(Task.aggregated_scores).filter_by(run_key=run_key)
+            if status_filter:
+                query = query.filter_by(status=status_filter)
+            rows = query.all()
+            return [{"aggregated_scores": r.aggregated_scores} for r in rows if r.aggregated_scores]
+
     def bulk_insert_tasks(self, tasks: List[Task]):
         with self.get_session() as session:
             session.bulk_save_objects(tasks)
@@ -133,8 +161,8 @@ class DBConnector:
 
             test_model = run.test_model
 
-            # Get all task IDs for this run
-            task_ids = [t.id for t in session.query(Task).filter_by(run_key=run_key).all()]
+            # Get all task IDs for this run (lightweight query - only IDs)
+            task_ids = [t.id for t in session.query(Task.id).filter_by(run_key=run_key).all()]
 
             if task_ids:
                 # Delete all judge results for these tasks
@@ -179,18 +207,6 @@ class DBConnector:
                     logging.info(f"Cleared benchmark_results from run {run_key}")
 
     # --- ELO Management ---
-    def get_all_elo_comparisons(self) -> List[EloComparison]:
-        with self.get_session() as session:
-            return session.query(EloComparison).all()
-
-    def get_elo_comparisons_for_models(self, model_names: List[str]) -> List[EloComparison]:
-        """Get ELO comparisons involving specific models."""
-        with self.get_session() as session:
-            return session.query(EloComparison).filter(
-                (EloComparison.model_a.in_(model_names)) | 
-                (EloComparison.model_b.in_(model_names))
-            ).all()
-
     def insert_elo_comparison(self, comparison_data: Dict[str, Any]):
         """Insert a single ELO comparison."""
         with self.get_session() as session:
