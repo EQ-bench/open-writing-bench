@@ -31,6 +31,47 @@ from core.scoring import (
 )
 from core.elo import run_elo_analysis_creative
 from core.analysis import analyze_task, aggregate_analyses, format_analysis_summary
+import re
+
+
+def strip_rubric_reasoning(prompt_template: str) -> str:
+    """
+    Remove the reasoning/analysis section from the rubric judging prompt.
+    This modifies the prompt to skip the [Analysis] section and go straight to [Scores].
+    """
+    # Remove the instruction to write comprehensive analysis
+    prompt_template = prompt_template.replace(
+        "- You are to write a comprehensive analysis of the piece, then give your scores.\n\n",
+        ""
+    )
+    prompt_template = prompt_template.replace(
+        "- You are to write a comprehensive analysis of the piece, then give your scores.",
+        ""
+    )
+
+    # Replace the output format to remove [Analysis] section
+    prompt_template = prompt_template.replace(
+        "- Output format is:\n\n[Analysis]\n\nWrite your detailed analysis.\n\n[Scores]",
+        "- Output format is:\n\n[Scores]"
+    )
+
+    return prompt_template
+
+
+def strip_elo_reasoning(prompt_template: str) -> str:
+    """
+    Remove the chain-of-thought reasoning field from the ELO pairwise judging prompt.
+    This removes the 'chain_of_thought_reasoning' field from the expected JSON output.
+    """
+    # Remove the chain_of_thought_reasoning line from the JSON format
+    prompt_template = re.sub(
+        r'"chain_of_thought_reasoning":\s*"[^"]*",?\n?',
+        '',
+        prompt_template
+    )
+
+    return prompt_template
+
 
 def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str], ensemble_mode: str = 'vote_avg'):
     """
@@ -95,7 +136,9 @@ def run_eq_bench_creative(
     multiturn: bool = False,
     num_chapters: int = DEFAULT_NUM_CHAPTERS,
     ensemble_mode: str = 'vote_avg',
-    n_prompts: Optional[int] = None
+    n_prompts: Optional[int] = None,
+    disable_rubric_reasoning: bool = False,
+    disable_elo_reasoning: bool = False
 ) -> str:
     """
     Main function to run the creative writing benchmark using the database.
@@ -118,6 +161,8 @@ def run_eq_bench_creative(
         multiturn: If True, use multi-turn generation (planning + chapters)
         num_chapters: Number of chapters for multi-turn mode (default 4)
         ensemble_mode: Ensemble judging mode - 'vote_avg' (default), 'vote_maj', or 'split'
+        disable_rubric_reasoning: If True, remove reasoning/analysis section from rubric judging prompts
+        disable_elo_reasoning: If True, remove chain-of-thought reasoning from ELO pairwise prompts
 
     Returns:
         The run_key for this benchmark run
@@ -152,6 +197,12 @@ def run_eq_bench_creative(
     creative_writing_criteria = [line.strip() for line in Path(creative_criteria_file).read_text(encoding='utf-8').splitlines() if line.strip()]
     negative_criteria = [line.strip() for line in Path(negative_criteria_file).read_text(encoding='utf-8').splitlines() if line.strip()]
     judge_prompt_template = Path(judge_prompt_file).read_text(encoding='utf-8')
+
+    # Apply reasoning stripping if requested
+    if disable_rubric_reasoning:
+        judge_prompt_template = strip_rubric_reasoning(judge_prompt_template)
+        logging.info("Rubric reasoning disabled - analysis section removed from judging prompt")
+
     with open(creative_prompts_file, 'r', encoding='utf-8') as f:
         creative_prompts = json.load(f)
 
@@ -358,18 +409,14 @@ def run_eq_bench_creative(
     if run_elo:
         logging.info("Starting ELO analysis...")
         try:
-            # Load pairwise prompt from file (required for ELO judging)
-            pairwise_prompt_file = "data/pairwise_prompt.txt"
-            with open(pairwise_prompt_file, 'r', encoding='utf-8') as f:
-                pairwise_prompt_template = f.read()
-            
             # ELO function now reads from and writes to the database
             final_elo_snapshot, error_msg = run_elo_analysis_creative(
                 run_key=run_key,
                 test_model=test_model,
                 judge_models=judge_models,
                 writing_prompts=creative_prompts,
-                concurrency=num_threads
+                concurrency=num_threads,
+                disable_elo_reasoning=disable_elo_reasoning
             )
 
             if error_msg:

@@ -55,43 +55,6 @@ def invert_if_negative(metric: str, val: float, neg_list: List[str]) -> float:
     return val
 
 
-def get_task_text_for_elo(task: Task, max_chars_per_chapter: int = LENGTH_TRUNCATION_CHARS_PER_CHAPTER) -> Optional[str]:
-    """
-    Extract the appropriate text from a task for ELO comparison.
-
-    For multi-turn tasks: Returns combined chapter text (excludes planning),
-                          with each chapter truncated individually
-    For single-turn tasks: Returns model_response (truncated)
-
-    Args:
-        task: The Task object
-        max_chars_per_chapter: Max characters per chapter for truncation
-
-    Returns:
-        The text to use for ELO comparison, or None if not available
-    """
-    # Check if this is a multi-turn task
-    if task.model_responses and len(task.model_responses) > 0:
-        # Multi-turn: combine chapters only (exclude planning)
-        chapters = []
-        for turn in task.model_responses:
-            if turn.get("turn_type") == "chapter" and turn.get("assistant_response"):
-                chapters.append(turn["assistant_response"])
-
-        if chapters:
-            # Truncate each chapter individually
-            truncated_chapters = truncate_chapters_for_judging(
-                chapters, max_chars_per_chapter, mode="middle"
-            )
-            parts = []
-            for i, chapter in enumerate(truncated_chapters, 1):
-                parts.append(f"# Chapter {i}\n\n{chapter}")
-            return "\n\n---\n\n".join(parts)
-
-    # Single-turn or fallback: use model_response (truncated)
-    if task.model_response:
-        return truncate_text(task.model_response, max_chars_per_chapter, mode="middle")
-    return None
 
 def deduplicate_comparisons_cw(comps: List[Dict[str, Any]], model_name_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     """
@@ -228,7 +191,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
         future_to_matchup_info: Dict[Any, Dict[str, Any]] = {}
 
         for item_id, test_iter_id, test_text, test_score, neigh_iter_id, neigh_text, neigh_score in matchups_to_judge:
-            # Text is already truncated per-chapter by get_task_text_for_elo
+            # Text is already truncated per-chapter during text loading
             textA = test_text
             textB = neigh_text
 
@@ -540,11 +503,15 @@ def run_elo_analysis_creative(
     test_model: str,
     judge_models: List[str], # Now a list for ensemble
     writing_prompts: Dict[str, Any],
-    concurrency: int
+    concurrency: int,
+    disable_elo_reasoning: bool = False
 ) -> Tuple[Dict[str, Any], Optional[str]]:
     """
     Refactored ELO analysis for Creative Writing using TrueSkill, EQB3-style sampling, and DB storage.
     Implements ensemble judging where multiple judges score each pairwise comparison.
+
+    Args:
+        disable_elo_reasoning: If True, remove chain-of-thought reasoning from pairwise prompts.
     """
     logging.info(f"[ELO-CW] Starting ELO analysis for test_model: '{test_model}', run_key: '{run_key}' with {len(judge_models)} judges")
     elo_error_message: Optional[str] = None
@@ -558,16 +525,32 @@ def run_elo_analysis_creative(
         logging.error(f"[ELO-CW] {msg}", exc_info=True)
         return {}, msg
 
+    # Apply reasoning stripping if requested
+    if disable_elo_reasoning:
+        import re
+        # Remove the chain_of_thought_reasoning line from the JSON format
+        pairwise_prompt_template = re.sub(
+            r'"chain_of_thought_reasoning":\s*"[^"]*",?\n?',
+            '',
+            pairwise_prompt_template
+        )
+        logging.info("[ELO-CW] ELO reasoning disabled - chain_of_thought_reasoning removed from pairwise prompt")
+
     # 1. Load existing ELO data from DB
     existing_elo_ratings = db.get_elo_ratings()  # Dict[model_name, EloRating]
     logging.info(f"[ELO-CW] Loaded {len(existing_elo_ratings)} existing ELO ratings from DB")
 
     # 2. Load all completed tasks from all runs in the DB to build model iteration data
-    # We need to query all tasks to get texts and rubric scores for ELO comparisons
+    # Only load metadata (not texts) - texts will be loaded on-demand after matchup selection
     with db.get_session() as session:
-        # Get all completed tasks across all runs
+        # Get all completed tasks across all runs - only metadata columns, NOT model_response/model_responses
         all_tasks = (
-            session.query(Task)
+            session.query(
+                Task.prompt_id,
+                Task.iteration_index,
+                Task.aggregated_scores,
+                Run.test_model
+            )
             .join(Run, Task.run_key == Run.run_key)
             .filter(
                 Task.status == 'completed',
@@ -575,36 +558,35 @@ def run_elo_analysis_creative(
             )
             .all()
         )
-        logging.info(f"[ELO-CW] Found {len(all_tasks)} completed tasks across all runs")
-        
+        logging.info(f"[ELO-CW] Found {len(all_tasks)} completed tasks across all runs (metadata only)")
+
         # Build model iteration structure: model -> iter -> items/scores
+        # Note: items now stores {prompt_id: True} to track existence, not actual text
         existing_analyses = {}
         all_model_names_in_system = set()
-        
+
         for task in all_tasks:
-            model_name = task.run.test_model  # Get test_model from the run
+            model_name = task.test_model  # From joined Run
             all_model_names_in_system.add(model_name)
-            
+
             if model_name not in existing_analyses:
                 existing_analyses[model_name] = {
                     "iterations": {},
                     "elo": existing_elo_ratings.get(model_name, EloRating(model_name=model_name, elo=DEFAULT_ELO)).elo,
                     "elo_analysis": {"pairwise_comparisons": []}
                 }
-            
+
             iter_id = str(task.iteration_index)
             if iter_id not in existing_analyses[model_name]["iterations"]:
                 existing_analyses[model_name]["iterations"][iter_id] = {
-                    "items": {},
+                    "items": {},  # Now stores {prompt_id: True} for existence tracking
                     "item_scores": {},
                     "creative_writing_rubric_score_iter": 0.0
                 }
-            
-            # Store task data - use helper to handle both single-turn and multi-turn tasks
-            task_text = get_task_text_for_elo(task)
-            if task_text:
-                existing_analyses[model_name]["iterations"][iter_id]["items"][task.prompt_id] = task_text
-            
+
+            # Store item existence (not text) - text will be loaded on-demand
+            existing_analyses[model_name]["iterations"][iter_id]["items"][task.prompt_id] = True
+
             # Get aggregated score
             if task.aggregated_scores:
                 piece_score = task.aggregated_scores.get("piece_score_0_20", 0.0)
@@ -701,8 +683,9 @@ def run_elo_analysis_creative(
         elo_snapshot[test_model] = DEFAULT_ELO
 
 
-    # Helper to get item texts and scores for a model's specific iteration
-    def get_iteration_details(model_name: str, iter_id: str) -> Tuple[Dict[str, str], Dict[str, float]]:
+    # Helper to get item IDs and scores for a model's specific iteration
+    # Note: items dict now contains {prompt_id: True} for existence tracking, not actual text
+    def get_iteration_details(model_name: str, iter_id: str) -> Tuple[Dict[str, bool], Dict[str, float]]:
         items = existing_analyses.get(model_name, {}).get("iterations", {}).get(iter_id, {}).get("items", {})
         item_scores = existing_analyses.get(model_name, {}).get("iterations", {}).get(iter_id, {}).get("item_scores", {})
         return items, item_scores
@@ -785,8 +768,10 @@ def run_elo_analysis_creative(
 
             # START OF PARALLEL OPPONENT PROCESSING MODIFICATION
             # Step 1: Build matchups for all opponents (sequentially - this is fast, just data manipulation)
-            def _build_matchups_for_opponent(opponent_details: Tuple[str, int]) -> Tuple[str, List[Tuple[str, str, str, float, str, str, float]]]:
-                """Build matchups for one opponent. Returns (opponent_name, matchups_list)."""
+            # Matchups are built WITHOUT texts - texts are fetched in bulk after selection
+            # Matchup tuple format: (item_id, tm_iter_id, tm_score, op_iter_id, op_score)
+            def _build_matchups_for_opponent_keys(opponent_details: Tuple[str, int]) -> Tuple[str, List[Tuple[str, str, float, str, float]]]:
+                """Build matchups for one opponent. Returns (opponent_name, matchups_list) WITHOUT texts."""
                 opponent_model_name, opponent_rank_in_full_ladder_for_opponent = opponent_details
 
                 logging.debug(f"[ELO-CW] Building matchups for {test_model} (rank {rank_old_in_full_ladder}) vs {opponent_model_name} (rank {opponent_rank_in_full_ladder_for_opponent})")
@@ -798,7 +783,8 @@ def run_elo_analysis_creative(
                     logging.debug(f"Skipping {opponent_model_name}, not enough iterations for {test_model} or opponent.")
                     return (opponent_model_name, [])
 
-                matchups_for_this_opponent: List[Tuple[str, str, str, float, str, str, float]] = []
+                # Matchup format: (item_id, tm_iter_id, tm_score, op_iter_id, op_score) - NO texts
+                matchups_for_this_opponent: List[Tuple[str, str, float, str, float]] = []
 
                 current_opponent_depth = abs(opponent_rank_in_full_ladder_for_opponent - rank_old_in_full_ladder)
 
@@ -813,18 +799,6 @@ def run_elo_analysis_creative(
                         comparisons_budget_for_opponent = max(1, samples_at_closest_tier // 4)
 
                 logging.debug(f"[ELO-CW] Opponent: {opponent_model_name}, Depth: {current_opponent_depth}, Budget: {comparisons_budget_for_opponent} comparison pairs.")
-
-                test_model_all_items_texts_scores: Dict[str, List[Tuple[str, str, float]]] = defaultdict(list)
-                for tm_iter_id in test_model_top_iters:
-                    items, item_scores = get_iteration_details(test_model, tm_iter_id)
-                    for item_id, text in items.items():
-                        test_model_all_items_texts_scores[item_id].append((tm_iter_id, text, item_scores.get(item_id, 0.0)))
-
-                opp_model_all_items_texts_scores: Dict[str, List[Tuple[str, str, float]]] = defaultdict(list)
-                for op_iter_id in opponent_top_iters:
-                    items, item_scores = get_iteration_details(opponent_model_name, op_iter_id)
-                    for item_id, text in items.items():
-                        opp_model_all_items_texts_scores[item_id].append((op_iter_id, text, item_scores.get(item_id, 0.0)))
 
                 # sort iterations numerically if possible, otherwise lexicographically
                 _sorted = lambda it: sorted(it, key=lambda s: (int(s) if str(s).isdigit() else s))
@@ -865,13 +839,14 @@ def run_elo_analysis_creative(
                         if sig in current_existing_matchups_this_run:
                             continue  # already judged
 
-                        op_items, op_item_scores = get_iteration_details(opponent_model_name, op_iter_id)
+                        _, op_item_scores = get_iteration_details(opponent_model_name, op_iter_id)
 
+                        # Store matchup WITHOUT text - will be fetched later
                         matchups_for_this_opponent.append(
                             (
                                 item_id,
-                                tm_iter_id, tm_items[item_id], tm_item_scores.get(item_id, 0.0),
-                                op_iter_id, op_items[item_id], op_item_scores.get(item_id, 0.0),
+                                tm_iter_id, tm_item_scores.get(item_id, 0.0),
+                                op_iter_id, op_item_scores.get(item_id, 0.0),
                             )
                         )
 
@@ -880,15 +855,71 @@ def run_elo_analysis_creative(
 
                 return (opponent_model_name, matchups_for_this_opponent)
 
-            # Build all matchups sequentially (fast - just data manipulation)
-            all_opponent_matchups: List[Tuple[str, List[Tuple[str, str, str, float, str, str, float]]]] = []
+            # Build all matchups sequentially (fast - just data manipulation, no texts)
+            all_opponent_matchups_keys: List[Tuple[str, List[Tuple[str, str, float, str, float]]]] = []
             for opp_details in opponents_to_process:
-                opponent_name, matchups = _build_matchups_for_opponent(opp_details)
+                opponent_name, matchups = _build_matchups_for_opponent_keys(opp_details)
                 if matchups:
-                    all_opponent_matchups.append((opponent_name, matchups))
+                    all_opponent_matchups_keys.append((opponent_name, matchups))
                     logging.info(f"[ELO-CW] Built {len(matchups)} comparison pairs for {test_model} vs {opponent_name}.")
 
-            # Step 2: Precompute lexical stats for ALL texts across all matchups (sequential, on main thread)
+            # Step 2: Collect all task keys needed and fetch texts in bulk from DB
+            all_opponent_matchups: List[Tuple[str, List[Tuple[str, str, str, float, str, str, float]]]] = []
+            if all_opponent_matchups_keys:
+                # Collect all (model, iter_idx, prompt_id) keys we need
+                task_keys_needed: Set[Tuple[str, int, str]] = set()
+                for opponent_name, matchups in all_opponent_matchups_keys:
+                    for item_id, tm_iter_id, tm_score, op_iter_id, op_score in matchups:
+                        task_keys_needed.add((test_model, int(tm_iter_id), item_id))
+                        task_keys_needed.add((opponent_name, int(op_iter_id), item_id))
+
+                logging.info(f"[ELO-CW] Fetching texts for {len(task_keys_needed)} unique task keys...")
+                task_texts = db.get_task_texts_by_keys(list(task_keys_needed))
+                logging.info(f"[ELO-CW] Fetched {len(task_texts)} task texts from DB.")
+
+                # Helper to get text for a task key
+                def get_text_for_key(model: str, iter_id: str, prompt_id: str) -> Optional[str]:
+                    key = (model, int(iter_id), prompt_id)
+                    task_data = task_texts.get(key)
+                    if not task_data:
+                        return None
+                    # Use get_task_text_for_elo logic but on raw data
+                    model_responses = task_data.get("model_responses")
+                    model_response = task_data.get("model_response")
+                    if model_responses and len(model_responses) > 0:
+                        # Multi-turn: combine chapters only
+                        chapters = []
+                        for turn in model_responses:
+                            if turn.get("turn_type") == "chapter" and turn.get("assistant_response"):
+                                chapters.append(turn["assistant_response"])
+                        if chapters:
+                            truncated_chapters = truncate_chapters_for_judging(
+                                chapters, LENGTH_TRUNCATION_CHARS_PER_CHAPTER, mode="middle"
+                            )
+                            parts = []
+                            for i, chapter in enumerate(truncated_chapters, 1):
+                                parts.append(f"# Chapter {i}\n\n{chapter}")
+                            return "\n\n---\n\n".join(parts)
+                    if model_response:
+                        return truncate_text(model_response, LENGTH_TRUNCATION_CHARS_PER_CHAPTER, mode="middle")
+                    return None
+
+                # Rebuild matchups with actual texts
+                for opponent_name, matchups_keys in all_opponent_matchups_keys:
+                    matchups_with_text: List[Tuple[str, str, str, float, str, str, float]] = []
+                    for item_id, tm_iter_id, tm_score, op_iter_id, op_score in matchups_keys:
+                        tm_text = get_text_for_key(test_model, tm_iter_id, item_id)
+                        op_text = get_text_for_key(opponent_name, op_iter_id, item_id)
+                        if tm_text and op_text:
+                            matchups_with_text.append(
+                                (item_id, tm_iter_id, tm_text, tm_score, op_iter_id, op_text, op_score)
+                            )
+                        else:
+                            logging.warning(f"[ELO-CW] Missing text for matchup {item_id}: test={tm_text is not None}, opp={op_text is not None}")
+                    if matchups_with_text:
+                        all_opponent_matchups.append((opponent_name, matchups_with_text))
+
+            # Step 3: Precompute lexical stats for ALL texts across all matchups (sequential, on main thread)
             if all_opponent_matchups:
                 from core.analysis import analyze_text
                 text_lexical_stats: Dict[str, Any] = {}
@@ -908,7 +939,7 @@ def run_elo_analysis_creative(
                         logging.warning(f"[ELO-CW] Lexical analysis failed: {e}")
                 logging.info(f"[ELO-CW] Lexical stats precomputation complete.")
 
-                # Step 3: Run judging in parallel for all opponents
+                # Step 4: Run judging in parallel for all opponents
                 def _judge_opponent(opponent_name: str, matchups: List[Tuple[str, str, str, float, str, str, float]]) -> List[Dict[str, Any]]:
                     """Judge matchups for one opponent using precomputed lexical stats."""
                     return _judge_item_iteration_pairs_in_parallel_cw(
@@ -998,7 +1029,16 @@ def run_elo_analysis_creative(
             if elo_error_message: break 
 
         # End of while loop for stage
-        logging.info(f"[ELO-CW] Stage {stage_idx} finished. Reason: {'stable rank' if stable else ('max loops reached' if loops >= MAX_STAGE_LOOPS else 'error')}")
+        # Determine exit reason - non-final stages exit after 1 loop by design
+        if stable:
+            exit_reason = "stable rank"
+        elif not is_final_stage:
+            exit_reason = "single loop completed (non-final stage)"
+        elif loops >= MAX_STAGE_LOOPS:
+            exit_reason = "max loops reached"
+        else:
+            exit_reason = "error"
+        logging.info(f"[ELO-CW] Stage {stage_idx} finished. Reason: {exit_reason}")
         if elo_error_message: break 
 
     # 7. Save newly generated comparisons to the DB

@@ -63,13 +63,17 @@ def main():
     parser.add_argument("--backend-config", type=str, default=None,
                         help="JSON string or path to JSON file with backend-specific configuration. "
                              "Example: '{\"tensor_parallel_size\": 2}' or 'config/backend.json'")
-    parser.add_argument("--ensemble-mode", type=str, default="vote_avg",
+    parser.add_argument("--ensemble-mode", type=str, default="split",
                         choices=["vote_avg", "vote_maj", "split"],
                         help="Ensemble judging mode: 'vote_avg' averages scores across judges (default), "
                              "'vote_maj' uses majority voting per metric, "
                              "'split' distributes items across judges (no ensemble, depth 1).")
     parser.add_argument("--n-prompts", type=int, default=None,
                         help="Limit the number of prompts to use from the creative prompts file.")
+    parser.add_argument("--disable-rubric-reasoning", action="store_true", default=False,
+                        help="Disable the reasoning/analysis section in rubric judging prompts.")
+    parser.add_argument("--disable-elo-reasoning", action="store_true", default=False,
+                        help="Disable the chain-of-thought reasoning in ELO pairwise judging prompts.")
 
     args = parser.parse_args()
     os.environ["INSPECT_MAX_CONNECTIONS"] = str(args.threads)
@@ -130,7 +134,9 @@ def main():
         multiturn=True,
         num_chapters=3,
         ensemble_mode=args.ensemble_mode,
-        n_prompts=args.n_prompts
+        n_prompts=args.n_prompts,
+        disable_rubric_reasoning=args.disable_rubric_reasoning,
+        disable_elo_reasoning=args.disable_elo_reasoning
     )
 
 

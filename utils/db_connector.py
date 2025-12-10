@@ -221,5 +221,68 @@ class DBConnector:
                     new_rating = EloRating(model_name=model_name, **data)
                     session.add(new_rating)
 
+    def get_task_texts_by_keys(self, task_keys: List[tuple]) -> Dict[tuple, Dict[str, Any]]:
+        """Fetch task texts for specific (test_model, iteration_index, prompt_id) tuples.
+
+        Args:
+            task_keys: List of (test_model, iteration_index, prompt_id) tuples
+
+        Returns:
+            Dict mapping (test_model, iteration_index, prompt_id) -> {
+                "model_response": str or None,
+                "model_responses": list or None
+            }
+        """
+        if not task_keys:
+            return {}
+
+        from sqlalchemy import tuple_
+
+        with self.get_session() as session:
+            # Build list of (run.test_model, task.iteration_index, task.prompt_id) conditions
+            # Group by test_model first for efficiency
+            model_to_keys: Dict[str, List[tuple]] = {}
+            for test_model, iter_idx, prompt_id in task_keys:
+                if test_model not in model_to_keys:
+                    model_to_keys[test_model] = []
+                model_to_keys[test_model].append((iter_idx, prompt_id))
+
+            results = {}
+
+            for test_model, keys in model_to_keys.items():
+                # Get all runs for this model
+                run_keys = [r.run_key for r in session.query(Run.run_key).filter_by(test_model=test_model).all()]
+
+                if not run_keys:
+                    continue
+
+                # Build (iteration_index, prompt_id) pairs for this model
+                iter_prompt_pairs = [(k[0], k[1]) for k in keys]
+
+                # Query tasks with only the text columns we need
+                tasks = (
+                    session.query(
+                        Task.iteration_index,
+                        Task.prompt_id,
+                        Task.model_response,
+                        Task.model_responses
+                    )
+                    .filter(
+                        Task.run_key.in_(run_keys),
+                        Task.status == 'completed',
+                        tuple_(Task.iteration_index, Task.prompt_id).in_(iter_prompt_pairs)
+                    )
+                    .all()
+                )
+
+                for task in tasks:
+                    key = (test_model, task.iteration_index, task.prompt_id)
+                    results[key] = {
+                        "model_response": task.model_response,
+                        "model_responses": task.model_responses
+                    }
+
+            return results
+
 # Singleton instance
 db = DBConnector()

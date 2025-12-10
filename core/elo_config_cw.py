@@ -47,7 +47,7 @@ SAMPLING_SCHEDULE = [
     ((1, 2, 3), 4),  # Sample 4 from rank +/-1, 2 from +/-2, 1 from +/-3
     #((1, 2, 3), 8),  # Sample 8 from rank +/-1, 4 from +/-2, 2 from +/-3
     ((1, 2, 3), 16), # Sample 16 from rank +/-1, 8 from +/-2, 4 from +/-3
-    ((1, 2, 3), 100),
+    ((1, 2, 3), 50),
     #((1, 2, 3), 32), # Sample 16 from rank +/-1, 8 from +/-2, 4 from +/-3
 
     # stage‑3 – comprehensive zoom (many samples from close neighbors)
