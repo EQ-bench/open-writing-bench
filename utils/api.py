@@ -80,6 +80,35 @@ class InferenceBackendClient(LLMClient):
         )
         return strip_thinking_tags(result)
 
+    def generate_with_usage(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> tuple[str, dict | None]:
+        """Generate text and return usage info (token counts and cost).
+
+        Returns:
+            Tuple of (content, usage_dict) where usage_dict contains:
+                - prompt_tokens: int
+                - completion_tokens: int
+                - total_tokens: int
+                - cost: float (USD cost for this request)
+            Returns (content, None) if backend doesn't support usage tracking.
+        """
+        if hasattr(self._backend, 'generate_with_usage'):
+            result, usage = self._backend.generate_with_usage(
+                prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            )
+            return strip_thinking_tags(result), usage
+        else:
+            # Fallback for backends that don't support usage tracking
+            result = self._backend.generate(
+                prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **kwargs
+            )
+            return strip_thinking_tags(result), None
+
     def generate_many(self, prompts: list[str], temperature: float, max_tokens: int, **kwargs) -> list[str]:
         """Generate text from multiple prompts using the backend's native batching."""
         results = self._backend.generate_many(

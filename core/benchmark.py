@@ -366,6 +366,7 @@ def run_eq_bench_creative(
 
     # --- 5. Judging Phase ---
     logging.info("Starting judging phase...")
+    rubric_judging_cost = 0.0
     tasks_to_judge = db.get_tasks_for_run(run_key, status_filter='generated')
     if tasks_to_judge:
         # Sort tasks by ID for reproducibility (important for split mode)
@@ -400,15 +401,20 @@ def run_eq_bench_creative(
 
             for future in tqdm(list(futures), desc="Judging creative pieces"):
                 try:
-                    future.result()
+                    task_cost = future.result()
+                    if task_cost:
+                        rubric_judging_cost += task_cost
                 except Exception as e:
                     logging.error(f"An error occurred during judging future execution: {e}", exc_info=True)
+
+        logging.info(f"Rubric judging complete. Total cost: ${rubric_judging_cost:.4f}")
     else:
         logging.info("No tasks require judging.")
 
     # --- 6. Final Scoring and ELO ---
     compute_benchmark_results_creative(run_key, negative_criteria, ensemble_mode=ensemble_mode)
 
+    elo_judging_cost = 0.0
     if run_elo:
         # Check task success rate before running ELO
         completed_count = db.count_tasks_for_run(run_key, status_filter='completed')
@@ -435,7 +441,7 @@ def run_eq_bench_creative(
         logging.info(f"Starting ELO analysis... (task success rate: {success_rate:.1%})")
         try:
             # ELO function now reads from and writes to the database
-            final_elo_snapshot, error_msg = run_elo_analysis_creative(
+            final_elo_snapshot, error_msg, elo_judging_cost = run_elo_analysis_creative(
                 run_key=run_key,
                 test_model=test_model,
                 judge_models=judge_models,
@@ -464,7 +470,19 @@ def run_eq_bench_creative(
         except Exception as e:
             logging.error(f"ELO analysis failed critically: {e}", exc_info=True)
 
-    # --- 6. Finalize Run ---
+    # --- 7. Store judging costs in results ---
+    total_judging_cost = rubric_judging_cost + elo_judging_cost
+    current_run = db.get_run(run_key)
+    results_dict = current_run.results or {}
+    results_dict["judging_costs"] = {
+        "rubric_judging_cost_usd": round(rubric_judging_cost, 6),
+        "elo_judging_cost_usd": round(elo_judging_cost, 6),
+        "total_judging_cost_usd": round(total_judging_cost, 6),
+    }
+    db.update_run(run_key, {"results": results_dict})
+    logging.info(f"Total judging cost: ${total_judging_cost:.4f} (rubric: ${rubric_judging_cost:.4f}, elo: ${elo_judging_cost:.4f})")
+
+    # --- 8. Finalize Run ---
     db.update_run(run_key, {"status": "completed", "end_time": datetime.now(timezone.utc)})
     logging.info(f"Run {run_key} marked as completed.")
     return run_key

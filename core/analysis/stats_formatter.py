@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 # Values above high_max are "extremely high"
 METRIC_CUTOFFS = {
     "slop_score": (0.1, 0.3, 0.45, 0.6),  # higher = more AI-like cliches
-    "vocab_level": (5.0, 5.5, 5.75, 6.0),  # extremely high or low may hurt readability
+    "vocab_level": (4.9, 5.3, 5.75, 6.0),  # extremely high or low may hurt readability
     "avg_sentence_length": (8.5, 9.5, 18.0, 25.0),
     "avg_paragraph_length": (15.0, 23.0, 80.0, 160.0),  # words per paragraph
     "mattr_500": (0.42, 0.45, 0.58, 0.68),  # lexical diversity

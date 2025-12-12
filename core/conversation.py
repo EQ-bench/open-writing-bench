@@ -423,7 +423,7 @@ class CreativeWritingTask:
         base_prompt: str,
         max_chars_per_chapter: int = 4000,
         lexical_stats: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> float:
         """
         Judges the generated piece with an ensemble of models.
 
@@ -440,10 +440,13 @@ class CreativeWritingTask:
         Args:
             lexical_stats: Precomputed lexical stats for this task (from analyze_task).
                           If not provided, stats will be computed on the fly.
+
+        Returns:
+            Total cost in USD for all judge API calls made during this judging.
         """
         if self.db_task.status != "generated":
             logging.warning(f"Cannot judge a task with status '{self.db_task.status}' (ID: {self.db_task.id})")
-            return
+            return 0.0
 
         # Determine if this is a multi-turn or single-turn task
         is_multiturn = self.db_task.model_responses is not None and len(self.db_task.model_responses) > 0
@@ -461,7 +464,7 @@ class CreativeWritingTask:
 
         if not model_text_truncated:
             db.update_task(self.db_task.id, {"status": "error", "error_message": "Cannot judge empty generation"})
-            return
+            return 0.0
 
         db.update_task(self.db_task.id, {"status": "judging"})
 
@@ -473,6 +476,8 @@ class CreativeWritingTask:
         lexical_stats_str = format_stats_for_judge(lexical_stats) if lexical_stats else ""
 
         judge_results_to_insert = []
+        total_cost = 0.0
+
         for i, judge_name in enumerate(judge_model_names):
             try:
                 judge_client = get_client(judge_name, client_type='judge')
@@ -487,11 +492,16 @@ class CreativeWritingTask:
 
                 print(final_judge_prompt)
 
-                judge_resp = judge_client.generate(
+                judge_resp, usage = judge_client.generate_with_usage(
                     prompt=final_judge_prompt,
                     temperature=0.0,
                     max_tokens=4096
                 )
+
+                # Track cost from usage info
+                if usage and "cost" in usage:
+                    total_cost += usage["cost"]
+
                 scores_dict = parse_judge_scores_creative(judge_resp)
 
                 result = JudgeResult(
@@ -519,4 +529,5 @@ class CreativeWritingTask:
 
         # Mark as judged; a separate aggregation step will mark it 'completed'
         db.update_task(self.db_task.id, {"status": "judged"})
-        logging.debug(f"Finished judging for task {self.db_task.id}.")
+        logging.debug(f"Finished judging for task {self.db_task.id}. Total cost: ${total_cost:.4f}")
+        return total_cost

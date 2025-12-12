@@ -151,8 +151,18 @@ class HTTPBackend(InferenceBackend):
 
         return payload
 
-    def _make_request(self, payload: dict[str, Any]) -> str:
-        """Make a single request with retries."""
+    def _make_request(self, payload: dict[str, Any], return_usage: bool = False) -> str | tuple[str, dict[str, Any] | None]:
+        """Make a single request with retries.
+
+        Args:
+            payload: The request payload
+            return_usage: If True, return (content, usage_dict) tuple instead of just content
+
+        Returns:
+            If return_usage is False: content string
+            If return_usage is True: (content, usage_dict) tuple where usage_dict contains
+                token counts and cost info (e.g. prompt_tokens, completion_tokens, total_tokens, cost)
+        """
         last_error = None
 
         for attempt in range(self.max_retries):
@@ -165,6 +175,10 @@ class HTTPBackend(InferenceBackend):
                 response.raise_for_status()
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
+
+                if return_usage:
+                    usage = data.get("usage")
+                    return content.strip(), usage
                 return content.strip()
 
             except requests.exceptions.Timeout:
@@ -203,14 +217,30 @@ class HTTPBackend(InferenceBackend):
             # Exponential backoff
             time.sleep(self.retry_delay * (attempt + 1))
 
-        raise RuntimeError(
+        error = RuntimeError(
             f"Failed to generate after {self.max_retries} attempts. Last error: {last_error}"
         )
+        if return_usage:
+            raise error
+        raise error
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a single prompt."""
         payload = self._build_payload(prompt, **kwargs)
         return self._make_request(payload)
+
+    def generate_with_usage(self, prompt: str, **kwargs) -> tuple[str, dict[str, Any] | None]:
+        """Generate text from a single prompt and return usage info.
+
+        Returns:
+            Tuple of (content, usage_dict) where usage_dict contains:
+                - prompt_tokens: int
+                - completion_tokens: int
+                - total_tokens: int
+                - cost: float (USD cost for this request, from OpenRouter)
+        """
+        payload = self._build_payload(prompt, **kwargs)
+        return self._make_request(payload, return_usage=True)
 
     def generate_many(self, prompts: list[str], **kwargs) -> list[str]:
         """

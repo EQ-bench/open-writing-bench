@@ -102,12 +102,15 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     judge_client: Any, # LLMClient object
     lexical_stats_a: Optional[Dict[str, Any]] = None,  # Precomputed stats for textA
     lexical_stats_b: Optional[Dict[str, Any]] = None,  # Precomputed stats for textB
-):
+) -> Tuple[Dict[str, Any], float]:
     """Core judging function from original CW elo.py.
 
     Args:
         lexical_stats_a: Precomputed lexical stats for textA. If not provided, computed on the fly.
         lexical_stats_b: Precomputed lexical stats for textB. If not provided, computed on the fly.
+
+    Returns:
+        Tuple of (result_dict, cost) where cost is the USD cost of this API call.
     """
     from core.analysis import analyze_text
     from core.analysis.stats_formatter import format_stats_for_judge
@@ -118,7 +121,7 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
 
     if raw_prompt_id not in writing_prompts:
         logging.error(f"[Judge-CW] Writing prompt for raw_prompt_id '{raw_prompt_id}' (from item_id '{prompt_id}') not found.")
-        return {"error": f"Writing prompt for {raw_prompt_id} not found"}
+        return {"error": f"Writing prompt for {raw_prompt_id} not found"}, 0.0
 
     prompt_obj = writing_prompts[raw_prompt_id]
     writing_prompt_content = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
@@ -138,24 +141,28 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     print(final_prompt)
 
     response_text = ""
+    cost = 0.0
     try:
-        # Use the judge_client directly
-        response_text = judge_client.generate(
+        # Use the judge_client with usage tracking
+        response_text, usage = judge_client.generate_with_usage(
             prompt=final_prompt, temperature=0.0, max_tokens=16000
         )
+        if usage and "cost" in usage:
+            cost = usage["cost"]
+
         start = response_text.find("{")
         end = response_text.rfind("}")
         if start == -1 or end == -1 or end <= start:
             logging.warning(f"[Judge-CW] Malformed JSON response for item {prompt_id}:\n{response_text}")
-            return {"error": "Malformed JSON response from judge model"}
+            return {"error": "Malformed JSON response from judge model"}, cost
         json_str = response_text[start:end + 1]
         result = json.loads(json_str)
         # if item_order_idx is not None: result["_item_order_idx"] = item_order_idx # If needed
-        return result
+        return result, cost
     except Exception as e:
         logging.error(f"[Judge-CW] Pairwise judge API error for item {prompt_id} with judge {judge_model}: {e}", exc_info=True)
         logging.debug(f"[Judge-CW] Failing response content:\n{response_text}")
-        return {"error": f"API error: {str(e)}"}
+        return {"error": f"API error: {str(e)}"}, cost
 
 
 def _judge_item_iteration_pairs_in_parallel_cw(
@@ -169,24 +176,27 @@ def _judge_item_iteration_pairs_in_parallel_cw(
     max_workers: int,
     text_lexical_stats: Optional[Dict[str, Any]] = None,
     ensemble_mode: str = 'vote_avg',
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], float]:
     """
     Judges specific item-iteration pairs in parallel.
     This adapts CW's _judge_items_in_parallel to operate on pre-selected item-iteration pairs.
-    Returns a list of comparison result dictionaries.
 
     Args:
         text_lexical_stats: Dict mapping text content to precomputed lexical analysis.
+
+    Returns:
+        Tuple of (comparison_results_list, total_cost_usd)
     """
     comparisons_results: List[Dict[str, Any]] = []
-    
+    total_cost = 0.0
+
     # Cap workers to avoid overwhelming APIs or system resources
     # Original CW used 500, which might be too high for many setups.
     # Let's use the passed max_workers, which will be derived from concurrency.
     num_workers = min(len(matchups_to_judge) * 2, max_workers) if matchups_to_judge else 0 # x2 for fwd/rev
 
     if num_workers == 0: # No matchups to judge or no workers allowed
-        return []
+        return [], 0.0
 
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         future_to_matchup_info: Dict[Any, Dict[str, Any]] = {}
@@ -247,13 +257,14 @@ def _judge_item_iteration_pairs_in_parallel_cw(
             item_id = match_info["item_id"]
             current_test_model = match_info["test_model_name"] # The overall test_model for this ELO run
             current_neigh_model = match_info["neighbor_model_name"] # The overall neighbor for this ELO run
-            
+
             # Iteration IDs for this specific comparison
             comp_test_iter_id = match_info["test_iter_id"]
             comp_neigh_iter_id = match_info["neigh_iter_id"]
 
             try:
-                judge_api_result = future.result()
+                judge_api_result, request_cost = future.result()
+                total_cost += request_cost
 
                 comp_entry: Dict[str, Any] = {
                     "item_id": item_id,
@@ -418,10 +429,10 @@ def _judge_item_iteration_pairs_in_parallel_cw(
             agg_comp["plus_diff_normalized"] = diff_norm
             agg_comp["plus_diff_blended"] = diff_blend
             agg_comp["fraction_for_test"] = frac
-        
+
         aggregated_comparisons.append(agg_comp)
-    
-    return aggregated_comparisons
+
+    return aggregated_comparisons, total_cost
 
 
 def normalize_elo_scores_cw(raw_scores: Dict[str, float], anchor_models: Optional[Dict[str, float]] = None) -> Dict[str, float]:
@@ -515,7 +526,7 @@ def run_elo_analysis_creative(
     concurrency: int,
     disable_elo_reasoning: bool = False,
     ensemble_mode: str = 'vote_avg',
-) -> Tuple[Dict[str, Any], Optional[str]]:
+) -> Tuple[Dict[str, Any], Optional[str], float]:
     """
     Refactored ELO analysis for Creative Writing using TrueSkill, EQB3-style sampling, and DB storage.
     Implements ensemble judging where multiple judges score each pairwise comparison.
@@ -524,9 +535,13 @@ def run_elo_analysis_creative(
         disable_elo_reasoning: If True, remove chain-of-thought reasoning from pairwise prompts.
         ensemble_mode: Ensemble judging mode - 'vote_avg', 'vote_maj', or 'split'.
                       In 'split' mode, each pairwise comparison is assigned to one judge (round-robin).
+
+    Returns:
+        Tuple of (final_elo_snapshot, error_message, total_judging_cost_usd)
     """
     logging.info(f"[ELO-CW] Starting ELO analysis for test_model: '{test_model}', run_key: '{run_key}' with {len(judge_models)} judges")
     elo_error_message: Optional[str] = None
+    elo_judging_cost: float = 0.0  # Track total cost of ELO judging
 
     # Load pairwise prompt template
     pairwise_prompt_file = "data/pairwise_prompt.txt"
@@ -535,7 +550,7 @@ def run_elo_analysis_creative(
     except Exception as e:
         msg = f"Failed to load pairwise prompt template from {pairwise_prompt_file}: {e}"
         logging.error(f"[ELO-CW] {msg}", exc_info=True)
-        return {}, msg
+        return {}, msg, 0.0
 
     # Apply reasoning stripping if requested
     if disable_elo_reasoning:
@@ -952,7 +967,7 @@ def run_elo_analysis_creative(
                 logging.info(f"[ELO-CW] Lexical stats precomputation complete.")
 
                 # Step 4: Run judging in parallel for all opponents
-                def _judge_opponent(opponent_name: str, matchups: List[Tuple[str, str, str, float, str, str, float]]) -> List[Dict[str, Any]]:
+                def _judge_opponent(opponent_name: str, matchups: List[Tuple[str, str, str, float, str, str, float]]) -> Tuple[List[Dict[str, Any]], float]:
                     """Judge matchups for one opponent using precomputed lexical stats."""
                     return _judge_item_iteration_pairs_in_parallel_cw(
                         test_model, opponent_name,
@@ -973,7 +988,8 @@ def run_elo_analysis_creative(
                     for future in as_completed(future_to_opponent):
                         opponent_name = future_to_opponent[future]
                         try:
-                            comps_from_opponent = future.result()
+                            comps_from_opponent, opponent_cost = future.result()
+                            elo_judging_cost += opponent_cost
                             if comps_from_opponent:
                                 round_comparisons_from_judging.extend(comps_from_opponent)
                         except Exception as e:
@@ -1088,7 +1104,7 @@ def run_elo_analysis_creative(
     if not models_for_final_solve:
         logging.warning("[ELO-CW] No models available for final ELO solve.")
         if not elo_error_message: elo_error_message = "No models for final solve."
-        return {}, elo_error_message
+        return {}, elo_error_message, elo_judging_cost
 
 
     final_comps_for_solver = get_solver_comparisons_cw(all_comparisons_global, elo_snapshot, RANK_WINDOW)
@@ -1172,5 +1188,6 @@ def run_elo_analysis_creative(
         logging.warning("[ELO-CW] No models with comparisons - skipping ELO rating save")
 
     logging.info(f"[ELO-CW] Test model '{test_model}' final ELO: {final_elo_results_snapshot.get(test_model, {}).get('elo', 'N/A')}, Norm ELO: {final_elo_results_snapshot.get(test_model, {}).get('elo_norm', 'N/A')}")
+    logging.info(f"[ELO-CW] Total ELO judging cost: ${elo_judging_cost:.4f}")
 
-    return final_elo_results_snapshot, elo_error_message
+    return final_elo_results_snapshot, elo_error_message, elo_judging_cost
