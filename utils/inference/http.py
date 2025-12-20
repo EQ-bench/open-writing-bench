@@ -17,7 +17,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 import requests
+
 from requests.adapters import HTTPAdapter
+
+DEFAULT_REQUEST_TIMEOUT = 240
+
+
+def _get_request_timeout() -> int:
+    """Get request timeout from environment or use default."""
+    return int(os.getenv("REQUEST_TIMEOUT", DEFAULT_REQUEST_TIMEOUT))
 
 from .base import InferenceBackend
 
@@ -56,7 +64,7 @@ class HTTPBackend(InferenceBackend):
         base_url: str,
         api_key: Optional[str] = None,
         system_prompt: Optional[str] = None,
-        timeout: int = 240,
+        timeout: Optional[int] = None,
         max_retries: int = 3,
         retry_delay: int = 5,
         max_concurrent: int = 64,
@@ -70,7 +78,7 @@ class HTTPBackend(InferenceBackend):
             base_url: Base URL for the API (e.g., "https://api.openai.com/v1/chat/completions")
             api_key: API key for authentication (can also use env var)
             system_prompt: Optional system prompt to prepend to all requests
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default: REQUEST_TIMEOUT env var or 240)
             max_retries: Number of retries on failure
             retry_delay: Base delay between retries (exponential backoff)
             max_concurrent: Max concurrent requests for generate_many
@@ -81,7 +89,7 @@ class HTTPBackend(InferenceBackend):
         self.base_url = base_url
         self.api_key = api_key or os.getenv("API_KEY", "")
         self.system_prompt = system_prompt
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else _get_request_timeout()
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_concurrent = max_concurrent

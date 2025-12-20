@@ -31,6 +31,13 @@ import requests
 
 from .base import InferenceBackend
 
+DEFAULT_REQUEST_TIMEOUT = 240
+
+
+def _get_request_timeout() -> int:
+    """Get request timeout from environment or use default."""
+    return int(os.getenv("REQUEST_TIMEOUT", DEFAULT_REQUEST_TIMEOUT))
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,7 +141,7 @@ class LlamaCppServerBackend(InferenceBackend):
         n_parallel: int = 1,
         cont_batching: bool = True,
         flash_attn: bool = False,
-        timeout: int = 240,
+        timeout: Optional[int] = None,
         max_concurrent: int = 8,
         max_retries: int = 3,
         retry_delay: int = 5,
@@ -157,7 +164,7 @@ class LlamaCppServerBackend(InferenceBackend):
             n_parallel: Number of parallel sequences to handle
             cont_batching: Enable continuous batching
             flash_attn: Enable flash attention
-            timeout: HTTP request timeout in seconds
+            timeout: HTTP request timeout in seconds (default: REQUEST_TIMEOUT env var or 240)
             max_concurrent: Max concurrent HTTP requests
             max_retries: Number of retries on HTTP failure
             retry_delay: Base delay between retries
@@ -181,7 +188,7 @@ class LlamaCppServerBackend(InferenceBackend):
         self._requested_port = port if port is not None else self.DEFAULT_PORT
         self.port = self._requested_port  # Will be updated if we need to fallback
         self.base_url = f"http://{host}:{self.port}"
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else _get_request_timeout()
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self.retry_delay = retry_delay

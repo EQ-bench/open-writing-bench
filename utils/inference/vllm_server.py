@@ -30,6 +30,15 @@ from typing import Any, Optional
 import requests
 
 from .base import InferenceBackend
+
+DEFAULT_REQUEST_TIMEOUT = 240
+
+
+def _get_request_timeout() -> int:
+    """Get request timeout from environment or use default."""
+    return int(os.getenv("REQUEST_TIMEOUT", DEFAULT_REQUEST_TIMEOUT))
+
+
 from .trust_remote_code import should_trust_remote_code
 
 logger = logging.getLogger(__name__)
@@ -168,7 +177,7 @@ class VLLMServerBackend(InferenceBackend):
         quantization: Optional[str] = None,
         seed: Optional[int] = None,
         served_model_name: Optional[str] = None,
-        timeout: int = 240,
+        timeout: Optional[int] = None,
         max_concurrent: int = 8,
         max_retries: int = 3,
         retry_delay: int = 5,
@@ -193,7 +202,7 @@ class VLLMServerBackend(InferenceBackend):
             quantization: Quantization method (None, "awq", "gptq", etc.)
             seed: Random seed for reproducibility
             served_model_name: Name to use in API requests (defaults to model_name)
-            timeout: HTTP request timeout in seconds
+            timeout: HTTP request timeout in seconds (default: REQUEST_TIMEOUT env var or 240)
             max_concurrent: Max concurrent HTTP requests for generate_many
             max_retries: Number of retries on HTTP failure
             retry_delay: Base delay between retries
@@ -228,7 +237,7 @@ class VLLMServerBackend(InferenceBackend):
         self.host = host
         self._requested_port = port if port is not None else self.DEFAULT_PORT
         self.port = self._requested_port
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else _get_request_timeout()
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self.retry_delay = retry_delay

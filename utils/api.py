@@ -156,8 +156,7 @@ def _create_backend_from_config(
             config["base_url"] = os.getenv("TEST_API_URL", "")
         if "api_key" not in config:
             config["api_key"] = os.getenv("TEST_API_KEY", "")
-        if "timeout" not in config:
-            config["timeout"] = int(os.getenv("REQUEST_TIMEOUT", 240))
+        # Note: timeout is handled by the backend itself via REQUEST_TIMEOUT env var
         if "max_retries" not in config:
             config["max_retries"] = int(os.getenv("MAX_RETRIES", 3))
         if "retry_delay" not in config:
