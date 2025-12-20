@@ -173,7 +173,7 @@ class VLLMServerBackend(InferenceBackend):
         max_retries: int = 3,
         retry_delay: int = 5,
         startup_timeout: int = 1500,
-        health_check_interval: float = 1.0,
+        health_check_interval: float = 30.0,
         extra_args: Optional[list[str]] = None,
         run_sandboxed: bool = True,
         sandbox_user: str = "vllm-sandbox",
