@@ -138,7 +138,7 @@ def do_pairwise_judge_cw( # Renamed to avoid conflict if other do_pairwise_judge
     final_prompt = final_prompt.replace("{model_a_lexical_stats}", stats_a_str)
     final_prompt = final_prompt.replace("{model_b_lexical_stats}", stats_b_str)
 
-    print(final_prompt)
+    #print(final_prompt)
 
     response_text = ""
     cost = 0.0

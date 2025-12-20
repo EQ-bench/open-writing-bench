@@ -490,7 +490,7 @@ class CreativeWritingTask:
                     lexical_stats=lexical_stats_str,
                 )
 
-                print(final_judge_prompt)
+                #print(final_judge_prompt)
 
                 judge_resp, usage = judge_client.generate_with_usage(
                     prompt=final_judge_prompt,
