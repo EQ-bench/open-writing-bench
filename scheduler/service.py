@@ -335,19 +335,19 @@ def cleanup_after_job(config: SchedulerConfig):
             logger.warning(f"Failed to kill vLLM processes: {e}")
 
     if config.clear_hf_cache:
-        logger.info("Clearing HuggingFace cache...")
-        cache_dirs = [
-            Path.home() / ".cache" / "huggingface" / "hub",
-            Path.home() / ".hf_home" / "hub",
-            Path.home() / ".hf_home" / "xet",
-        ]
-        for cache_dir in cache_dirs:
-            if cache_dir.exists():
-                try:
-                    shutil.rmtree(cache_dir)
-                    logger.info(f"Cleared cache: {cache_dir}")
-                except Exception as e:
-                    logger.warning(f"Failed to clear {cache_dir}: {e}")
+        logger.info("Clearing old HuggingFace cache directories...")
+        hf_cache_root = Path("/workspace/mounted/vllm-sandbox/hf")
+        if hf_cache_root.exists():
+            cutoff_time = time.time() - (4 * 60 * 60)  # 4 hours ago
+            for subdir in hf_cache_root.iterdir():
+                if subdir.is_dir():
+                    try:
+                        dir_mtime = subdir.stat().st_mtime
+                        if dir_mtime < cutoff_time:
+                            shutil.rmtree(subdir)
+                            logger.info(f"Cleared old cache dir: {subdir}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clear {subdir}: {e}")
 
 
 def get_next_submission() -> Optional[Submission]:
