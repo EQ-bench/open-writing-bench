@@ -119,10 +119,12 @@ class VLLMServerBackend(InferenceBackend):
         "ENV_VARS",
         # Server configuration
         "host", "port", "timeout",
+        # Sandbox configuration
+        "run_sandboxed", "sandbox_user",
         # vLLM engine args (passed to vllm serve)
         "tensor_parallel_size", "pipeline_parallel_size",
         "gpu_memory_utilization", "max_model_len",
-        "dtype", "quantization", "load_format",
+        "dtype", "quantization",
         "tokenizer", "tokenizer_mode",
         "revision", "download_dir", "seed",
         "enforce_eager", "max_num_seqs", "max_num_batched_tokens",
@@ -135,6 +137,10 @@ class VLLMServerBackend(InferenceBackend):
         # Extra CLI args
         "extra_args",
     }
+
+    # Hardcoded sandbox paths
+    SANDBOX_VENV_BIN = "/workspace/mounted/venvs/owl/bin"
+    SANDBOX_HOME_BASE = "/workspace/mounted/vllm-sandbox"
 
     KNOWN_GEN_PARAMS = {
         "temperature", "max_tokens", "top_p", "top_k",
@@ -168,6 +174,8 @@ class VLLMServerBackend(InferenceBackend):
         startup_timeout: int = 1500,
         health_check_interval: float = 1.0,
         extra_args: Optional[list[str]] = None,
+        run_sandboxed: bool = True,
+        sandbox_user: str = "vllm-sandbox",
         **kwargs
     ):
         """
@@ -191,6 +199,8 @@ class VLLMServerBackend(InferenceBackend):
             startup_timeout: Max seconds to wait for server startup
             health_check_interval: Seconds between health checks during startup
             extra_args: Additional CLI arguments to pass to vllm serve
+            run_sandboxed: Run vLLM in a sandboxed environment (default: True)
+            sandbox_user: User to run sandboxed vLLM as (default: "vllm-sandbox")
             **kwargs: Additional vLLM engine args. Special keys:
                 ENV_VARS: dict of environment variables to set before launching vLLM.
         """
@@ -198,13 +208,21 @@ class VLLMServerBackend(InferenceBackend):
         self._env_vars = kwargs.pop("ENV_VARS", None)
         super().__init__(model_name, **kwargs)
 
-        # Find vllm executable
-        self._vllm_executable = _find_vllm_executable()
-        if not self._vllm_executable:
-            raise ImportError(
-                "vLLM is not installed or not found in PATH. "
-                "Install with: pip install vllm"
-            )
+        # Sandbox configuration
+        self._run_sandboxed = run_sandboxed
+        self._sandbox_user = sandbox_user
+
+        # Find vllm executable (only needed for non-sandboxed mode)
+        if not run_sandboxed:
+            self._vllm_executable = _find_vllm_executable()
+            if not self._vllm_executable:
+                raise ImportError(
+                    "vLLM is not installed or not found in PATH. "
+                    "Install with: pip install vllm"
+                )
+        else:
+            # In sandboxed mode, we use the vllm from the sandbox venv
+            self._vllm_executable = f"{self.SANDBOX_VENV_BIN}/vllm"
 
         self.host = host
         self._requested_port = port if port is not None else self.DEFAULT_PORT
@@ -260,6 +278,11 @@ class VLLMServerBackend(InferenceBackend):
         """Build environment variables for the server process."""
         env = os.environ.copy()
 
+        # In sandboxed mode, env vars are passed via 'env -i' in the command,
+        # not through subprocess environment
+        if self._run_sandboxed:
+            return env
+
         if self._env_vars:
             for key, value in self._env_vars.items():
                 if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
@@ -272,6 +295,84 @@ class VLLMServerBackend(InferenceBackend):
                 env[key] = str(value)
 
         return env
+
+    def _build_vllm_args(
+        self,
+        model_name: str,
+        tensor_parallel_size: int,
+        gpu_memory_utilization: float,
+        max_model_len: Optional[int],
+        dtype: str,
+        quantization: Optional[str],
+        seed: Optional[int],
+        served_model_name: str,
+        extra_args: list[str],
+        **kwargs
+    ) -> list[str]:
+        """Build the vllm serve arguments (without the vllm executable itself)."""
+        args = ["serve", model_name]
+
+        # Server binding
+        args.extend(["--host", self.host])
+        args.extend(["--port", str(self.port)])
+
+        # Security: Always enforce these options
+        args.extend(["--no-trust-remote-code"])
+        args.extend(["--load-format", "safetensors"])
+
+        # Core engine args
+        args.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
+        args.extend(["--gpu-memory-utilization", str(gpu_memory_utilization)])
+        args.extend(["--dtype", dtype])
+
+        if max_model_len is not None:
+            args.extend(["--max-model-len", str(max_model_len)])
+
+        if quantization is not None:
+            args.extend(["--quantization", quantization])
+
+        if seed is not None:
+            args.extend(["--seed", str(seed)])
+
+        if served_model_name:
+            args.extend(["--served-model-name", served_model_name])
+
+        # Optional engine args
+        optional_args = {
+            "pipeline_parallel_size": "--pipeline-parallel-size",
+            "tokenizer": "--tokenizer",
+            "tokenizer_mode": "--tokenizer-mode",
+            "revision": "--revision",
+            "download_dir": "--download-dir",
+            "max_num_seqs": "--max-num-seqs",
+            "max_num_batched_tokens": "--max-num-batched-tokens",
+        }
+
+        for param, flag in optional_args.items():
+            if param in kwargs and kwargs[param] is not None:
+                args.extend([flag, str(kwargs[param])])
+
+        # Boolean flags
+        bool_flags = {
+            "enforce_eager": "--enforce-eager",
+            "enable_prefix_caching": "--enable-prefix-caching",
+            "disable_log_stats": "--disable-log-stats",
+        }
+
+        for param, flag in bool_flags.items():
+            if kwargs.get(param):
+                args.append(flag)
+
+        # Suppress verbose prompt/output logging
+        args.append("--disable-log-requests")
+        args.append("--max-log-len")
+        args.append("0")
+
+        # Extra CLI args (passed through directly)
+        if extra_args:
+            args.extend(extra_args)
+
+        return args
 
     def _build_server_command(
         self,
@@ -286,76 +387,73 @@ class VLLMServerBackend(InferenceBackend):
         extra_args: list[str],
         **kwargs
     ) -> list[str]:
-        """Build the vllm serve command line."""
-        # Determine how to invoke vllm
-        if self._vllm_executable and "python" not in self._vllm_executable:
-            # Direct vllm command
-            cmd = [self._vllm_executable, "serve", model_name]
-        else:
-            # Python module invocation
-            cmd = [
-                self._vllm_executable or "python",
-                "-m", "vllm.entrypoints.openai.api_server",
-                "--model", model_name
-            ]
+        """Build the full vllm serve command line, with sandbox wrapper if enabled."""
+        vllm_args = self._build_vllm_args(
+            model_name=model_name,
+            tensor_parallel_size=tensor_parallel_size,
+            gpu_memory_utilization=gpu_memory_utilization,
+            max_model_len=max_model_len,
+            dtype=dtype,
+            quantization=quantization,
+            seed=seed,
+            served_model_name=served_model_name,
+            extra_args=extra_args,
+            **kwargs
+        )
 
-        # Server binding
-        cmd.extend(["--host", self.host])
-        cmd.extend(["--port", str(self.port)])
+        if not self._run_sandboxed:
+            # Direct invocation
+            if self._vllm_executable and "python" not in self._vllm_executable:
+                return [self._vllm_executable] + vllm_args
+            else:
+                # Python module invocation (convert 'serve MODEL' to '-m vllm... --model MODEL')
+                return [
+                    self._vllm_executable or "python",
+                    "-m", "vllm.entrypoints.openai.api_server",
+                    "--model", model_name,
+                ] + vllm_args[2:]  # Skip 'serve' and model_name from vllm_args
 
-        # Core engine args
-        cmd.extend(["--tensor-parallel-size", str(tensor_parallel_size)])
-        cmd.extend(["--gpu-memory-utilization", str(gpu_memory_utilization)])
-        cmd.extend(["--dtype", dtype])
-        cmd.extend(["--trust-remote-code"])  # Often needed for HF models
+        # Sandboxed invocation using sudo + setpriv + prlimit + env -i
+        sandbox_home = self.SANDBOX_HOME_BASE
+        venv_bin = self.SANDBOX_VENV_BIN
 
-        if max_model_len is not None:
-            cmd.extend(["--max-model-len", str(max_model_len)])
+        # Build the env -i environment variables
+        env_vars = [
+            f"HOME={sandbox_home}",
+            f"HF_HOME={sandbox_home}/hf",
+            f"HF_HUB_CACHE={sandbox_home}/hf/hub",
+            f"TRANSFORMERS_CACHE={sandbox_home}/hf/hub",
+            f"TMPDIR={sandbox_home}/tmp",
+            f"PATH={venv_bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        ]
 
-        if quantization is not None:
-            cmd.extend(["--quantization", quantization])
+        # Add any allowed ENV_VARS from config
+        if self._env_vars:
+            for key, value in self._env_vars.items():
+                if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
+                    logger.warning(
+                        f"VLLMServerBackend: Ignoring disallowed env var in sandbox: {key}"
+                    )
+                    continue
+                env_vars.append(f"{key}={value}")
 
-        if seed is not None:
-            cmd.extend(["--seed", str(seed)])
-
-        if served_model_name:
-            cmd.extend(["--served-model-name", served_model_name])
-
-        # Optional engine args
-        optional_args = {
-            "pipeline_parallel_size": "--pipeline-parallel-size",
-            "tokenizer": "--tokenizer",
-            "tokenizer_mode": "--tokenizer-mode",
-            "revision": "--revision",
-            "download_dir": "--download-dir",
-            "load_format": "--load-format",
-            "max_num_seqs": "--max-num-seqs",
-            "max_num_batched_tokens": "--max-num-batched-tokens",
-        }
-
-        for param, flag in optional_args.items():
-            if param in kwargs and kwargs[param] is not None:
-                cmd.extend([flag, str(kwargs[param])])
-
-        # Boolean flags
-        bool_flags = {
-            "enforce_eager": "--enforce-eager",
-            "enable_prefix_caching": "--enable-prefix-caching",
-            "disable_log_stats": "--disable-log-stats",
-        }
-
-        for param, flag in bool_flags.items():
-            if kwargs.get(param):
-                cmd.append(flag)
-
-        # Suppress verbose prompt/output logging
-        cmd.append("--disable-log-requests")
-        cmd.append("--max-log-len")
-        cmd.append("0")
-
-        # Extra CLI args (passed through directly)
-        if extra_args:
-            cmd.extend(extra_args)
+        cmd = [
+            "sudo",
+            "setpriv",
+            f"--reuid={self._sandbox_user}",
+            f"--regid={self._sandbox_user}",
+            "--init-groups",
+            "--",
+            "prlimit",
+            "--core=0:0",
+            "--nproc=4096:4096",
+            "--nofile=1048576:1048576",
+            "--",
+            "env", "-i",
+        ]
+        cmd.extend(env_vars)
+        cmd.append("vllm")
+        cmd.extend(vllm_args)
 
         return cmd
 
@@ -477,11 +575,21 @@ class VLLMServerBackend(InferenceBackend):
                 bufsize=1,
                 env=env,
             )
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            if self._run_sandboxed:
+                raise FileNotFoundError(
+                    f"Failed to start sandboxed vLLM. Ensure 'sudo' is available and "
+                    f"the sandbox user '{self._sandbox_user}' exists. Error: {e}"
+                )
             raise FileNotFoundError(
                 f"vLLM executable not found: {self._vllm_executable}"
             )
-        except PermissionError:
+        except PermissionError as e:
+            if self._run_sandboxed:
+                raise PermissionError(
+                    f"Permission denied starting sandboxed vLLM. Ensure passwordless sudo "
+                    f"is configured for setpriv. Error: {e}"
+                )
             raise PermissionError(
                 f"No execute permission for: {self._vllm_executable}"
             )
