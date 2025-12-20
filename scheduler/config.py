@@ -15,7 +15,7 @@ class SchedulerConfig:
     poll_interval_sec: int = 10
     log_stream_interval_sec: int = 10
     hard_timeout_sec: int = 7200  # 2 hours default
-    max_attempts: int = 3
+    max_attempts: int = 1
 
     # Default job settings
     default_threads: int = 34
