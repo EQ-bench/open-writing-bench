@@ -17,14 +17,13 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
 from typing import Dict, List, Optional, Any
 
 from utils.db_connector import db
 from utils.db_schema import Run, Task
 from utils.api import get_client
 from core.conversation import CreativeWritingTask, DEFAULT_NUM_CHAPTERS
-from core.progress import RunProgress
+from core.progress import RunProgress, log_progress
 from core.scoring import (
     compute_single_benchmark_score_creative,
     bootstrap_benchmark_stability_creative,
@@ -293,7 +292,7 @@ def run_eq_bench_creative(
                         progress=progress,
                     ))
                 # Process futures (progress auto-flushes every 15s via maybe_flush)
-                for future in tqdm(list(futures), desc="Generating multi-turn pieces"):
+                for future in log_progress(list(futures), desc="Generating multi-turn pieces"):
                     try:
                         future.result()
                     except Exception as e:
@@ -315,7 +314,7 @@ def run_eq_bench_creative(
 
                 # chunk to avoid giant payloads; reuse args.threads as chunk-size heuristic
                 chunk = max(1, min(len(prompts), num_threads))
-                for i in tqdm(range(0, len(prompts), chunk), desc="Generating creative pieces"):
+                for i in log_progress(list(range(0, len(prompts), chunk)), desc="Generating creative pieces"):
                     sub_prompts = prompts[i:i+chunk]
                     sub_task_ids = task_ids[i:i+chunk]
                     try:
@@ -352,7 +351,7 @@ def run_eq_bench_creative(
                         future = executor.submit(task_controller.generate_creative_piece, test_model_client, prompt)
                         futures.append(future)
                     # Process futures (progress auto-flushes every 15s via maybe_flush)
-                    for future in tqdm(list(futures), desc="Generating creative pieces"):
+                    for future in log_progress(list(futures), desc="Generating creative pieces"):
                         try:
                             future.result()
                             # (generate_creative_piece updates DB directly)
@@ -441,7 +440,7 @@ def run_eq_bench_creative(
                 ))
 
             # Process futures (progress auto-flushes every 15s via maybe_flush)
-            for future in tqdm(list(futures), desc="Judging creative pieces"):
+            for future in log_progress(list(futures), desc="Judging creative pieces"):
                 try:
                     task_cost = future.result()
                     if task_cost:

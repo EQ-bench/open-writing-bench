@@ -7,12 +7,15 @@ Workers update in-memory counters atomically, and the main thread
 periodically flushes snapshots to the database to avoid expensive queries.
 """
 
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Iterator, TypeVar
 
 from utils.db_connector import db
+
+T = TypeVar('T')
 
 # Default interval between automatic DB flushes (seconds)
 DEFAULT_FLUSH_INTERVAL = 15.0
@@ -183,3 +186,42 @@ class RunProgress:
         db.update_run(self.run_key, {
             "judging_progress": self.judging_snapshot(),
         })
+
+
+def log_progress(
+    iterable: list[T],
+    desc: str,
+    log_interval: float = 15.0,
+) -> Iterator[T]:
+    """
+    Iterate over items while logging progress at regular intervals.
+
+    Unlike tqdm, this writes to the logging system (stdout) rather than stderr,
+    avoiding pollution of stderr logs when running under a scheduler.
+
+    Args:
+        iterable: List of items to iterate over
+        desc: Description for the progress log messages
+        log_interval: Seconds between progress log messages
+
+    Yields:
+        Items from the iterable
+    """
+    total = len(iterable)
+    if total == 0:
+        return
+
+    last_log_time = time.monotonic()
+    logging.info(f"{desc}: starting (0/{total})")
+
+    for i, item in enumerate(iterable):
+        yield item
+
+        now = time.monotonic()
+        if now - last_log_time >= log_interval:
+            completed = i + 1
+            pct = 100 * completed / total
+            logging.info(f"{desc}: {pct:.0f}% ({completed}/{total})")
+            last_log_time = now
+
+    logging.info(f"{desc}: complete ({total}/{total})")
