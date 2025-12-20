@@ -391,6 +391,7 @@ def _judge_item_iteration_pairs_in_parallel_cw(
             agg_comp["judge_responses"].append({
                 "judge_name": comp.get("judge_name", "unknown"),
                 "judge_response": comp.get("judge_response", {}),
+                "order": comp.get("order", ""),  # e.g. "A0493:test / A0488:other"
                 "plus_for_test": comp.get("plus_for_test", 0),
                 "plus_for_other": comp.get("plus_for_other", 0),
                 "outcome": comp.get("outcome_for_test_model", 0.5)
