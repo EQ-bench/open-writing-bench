@@ -13,6 +13,7 @@ via the async engine's continuous batching.
 import asyncio
 import logging
 import os
+import subprocess
 import threading
 import uuid
 from typing import Any, Optional
@@ -20,6 +21,33 @@ from typing import Any, Optional
 from .base import InferenceBackend
 
 logger = logging.getLogger(__name__)
+
+
+def _get_gpu_count() -> int:
+    """Get the number of available GPUs."""
+    try:
+        import torch
+        return torch.cuda.device_count() or 1
+    except ImportError:
+        pass
+
+    # Fallback: check CUDA_VISIBLE_DEVICES
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if cuda_devices:
+        return len([d for d in cuda_devices.split(",") if d.strip()])
+
+    # Fallback: try nvidia-smi
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return len(result.stdout.strip().split("\n"))
+    except Exception:
+        pass
+
+    return 1
 
 
 class VLLMLocalBackend(InferenceBackend):
@@ -75,7 +103,7 @@ class VLLMLocalBackend(InferenceBackend):
     def __init__(
         self,
         model_name: str,
-        tensor_parallel_size: int = 1,
+        tensor_parallel_size: Optional[int] = None,
         gpu_memory_utilization: float = 0.9,
         max_model_len: Optional[int] = None,
         dtype: str = "auto",
@@ -89,7 +117,7 @@ class VLLMLocalBackend(InferenceBackend):
 
         Args:
             model_name: HuggingFace model name or path
-            tensor_parallel_size: Number of GPUs for tensor parallelism
+            tensor_parallel_size: Number of GPUs for tensor parallelism (None = all available)
             gpu_memory_utilization: Fraction of GPU memory to use
             max_model_len: Maximum sequence length (None = auto)
             dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
@@ -106,6 +134,11 @@ class VLLMLocalBackend(InferenceBackend):
         env_vars = kwargs.pop("ENV_VARS", None)
         if env_vars:
             self._set_env_vars(env_vars)
+
+        # Default tensor_parallel_size to number of available GPUs
+        if tensor_parallel_size is None:
+            tensor_parallel_size = _get_gpu_count()
+            logger.info(f"Auto-detected {tensor_parallel_size} GPU(s) for tensor parallelism")
 
         # Filter out trust_remote_code if passed (always disabled for security)
         kwargs.pop("trust_remote_code", None)

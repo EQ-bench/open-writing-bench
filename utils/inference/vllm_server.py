@@ -154,7 +154,7 @@ class VLLMServerBackend(InferenceBackend):
         model_name: str,
         host: str = "127.0.0.1",
         port: Optional[int] = None,
-        tensor_parallel_size: int = 1,
+        tensor_parallel_size: Optional[int] = None,
         gpu_memory_utilization: float = 0.9,
         max_model_len: Optional[int] = None,
         dtype: str = "auto",
@@ -177,7 +177,7 @@ class VLLMServerBackend(InferenceBackend):
             model_name: HuggingFace model name or path
             host: Host to bind server to
             port: Port to bind server to (default: 8100, with automatic fallback)
-            tensor_parallel_size: Number of GPUs for tensor parallelism
+            tensor_parallel_size: Number of GPUs for tensor parallelism (None = all available)
             gpu_memory_utilization: Fraction of GPU memory to use
             max_model_len: Maximum sequence length (None = auto)
             dtype: Model dtype ("auto", "float16", "bfloat16", "float32")
@@ -218,6 +218,11 @@ class VLLMServerBackend(InferenceBackend):
 
         # Model name for API requests
         self._served_model_name = served_model_name or model_name
+
+        # Default tensor_parallel_size to number of available GPUs
+        if tensor_parallel_size is None:
+            tensor_parallel_size = _get_gpu_count()
+            logger.info(f"Auto-detected {tensor_parallel_size} GPU(s) for tensor parallelism")
 
         # Store parameters for command building
         self._cmd_params = {
