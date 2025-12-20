@@ -121,15 +121,9 @@ class JobRunner:
         else:
             judges_str = str(judges)
 
-        # Build backend config from vllmParams
+        # Build backend config from vllmParams - pass through all specified params
         vllm_params = params.get("vllmParams", {})
-        backend_config = {}
-        if vllm_params:
-            # Copy relevant params
-            for key in ["gpu_memory_utilization", "max_model_len", "dtype", "quantization",
-                        "enforce_eager", "tensor_parallel_size", "ENV_VARS"]:
-                if key in vllm_params:
-                    backend_config[key] = vllm_params[key]
+        backend_config = dict(vllm_params) if vllm_params else {}
 
         cmd = [
             sys.executable, "-m", "open_writing_bench",
