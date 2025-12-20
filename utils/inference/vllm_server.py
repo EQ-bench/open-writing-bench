@@ -276,13 +276,31 @@ class VLLMServerBackend(InferenceBackend):
 
     def _build_env(self) -> dict[str, str]:
         """Build environment variables for the server process."""
-        env = os.environ.copy()
-
-        # In sandboxed mode, env vars are passed via 'env -i' in the command,
-        # not through subprocess environment
         if self._run_sandboxed:
+            # In sandboxed mode, use a clean environment with sandbox paths
+            sandbox_home = self.SANDBOX_HOME_BASE
+            venv_bin = self.SANDBOX_VENV_BIN
+            env = {
+                "HOME": sandbox_home,
+                "HF_HOME": f"{sandbox_home}/hf",
+                "HF_HUB_CACHE": f"{sandbox_home}/hf/hub",
+                "TRANSFORMERS_CACHE": f"{sandbox_home}/hf/hub",
+                "TMPDIR": f"{sandbox_home}/tmp",
+                "PATH": f"{venv_bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            }
+            # Add any allowed ENV_VARS from config
+            if self._env_vars:
+                for key, value in self._env_vars.items():
+                    if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
+                        logger.warning(
+                            f"VLLMServerBackend: Ignoring disallowed env var in sandbox: {key}"
+                        )
+                        continue
+                    env[key] = str(value)
             return env
 
+        # Non-sandboxed mode: inherit environment
+        env = os.environ.copy()
         if self._env_vars:
             for key, value in self._env_vars.items():
                 if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
@@ -413,32 +431,9 @@ class VLLMServerBackend(InferenceBackend):
                     "--model", model_name,
                 ] + vllm_args[2:]  # Skip 'serve' and model_name from vllm_args
 
-        # Sandboxed invocation using sudo + setpriv + prlimit + env -i
-        sandbox_home = self.SANDBOX_HOME_BASE
-        venv_bin = self.SANDBOX_VENV_BIN
-
-        # Build the env -i environment variables
-        env_vars = [
-            f"HOME={sandbox_home}",
-            f"HF_HOME={sandbox_home}/hf",
-            f"HF_HUB_CACHE={sandbox_home}/hf/hub",
-            f"TRANSFORMERS_CACHE={sandbox_home}/hf/hub",
-            f"TMPDIR={sandbox_home}/tmp",
-            f"PATH={venv_bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        ]
-
-        # Add any allowed ENV_VARS from config
-        if self._env_vars:
-            for key, value in self._env_vars.items():
-                if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
-                    logger.warning(
-                        f"VLLMServerBackend: Ignoring disallowed env var in sandbox: {key}"
-                    )
-                    continue
-                env_vars.append(f"{key}={value}")
-
+        # Sandboxed invocation using setpriv + prlimit
+        # Environment is passed via subprocess env parameter, cwd set to sandbox home
         cmd = [
-            "sudo",
             "setpriv",
             f"--reuid={self._sandbox_user}",
             f"--regid={self._sandbox_user}",
@@ -449,10 +444,8 @@ class VLLMServerBackend(InferenceBackend):
             "--nproc=4096:4096",
             "--nofile=1048576:1048576",
             "--",
-            "env", "-i",
+            f"{self.SANDBOX_VENV_BIN}/vllm",
         ]
-        cmd.extend(env_vars)
-        cmd.append("vllm")
         cmd.extend(vllm_args)
 
         return cmd
@@ -566,6 +559,9 @@ class VLLMServerBackend(InferenceBackend):
 
         env = self._build_env()
 
+        # In sandboxed mode, set cwd to sandbox home for proper permissions
+        cwd = self.SANDBOX_HOME_BASE if self._run_sandboxed else None
+
         try:
             self._process = subprocess.Popen(
                 self._cmd,
@@ -574,11 +570,12 @@ class VLLMServerBackend(InferenceBackend):
                 text=True,
                 bufsize=1,
                 env=env,
+                cwd=cwd,
             )
         except FileNotFoundError as e:
             if self._run_sandboxed:
                 raise FileNotFoundError(
-                    f"Failed to start sandboxed vLLM. Ensure 'sudo' is available and "
+                    f"Failed to start sandboxed vLLM. Ensure 'setpriv' is available and "
                     f"the sandbox user '{self._sandbox_user}' exists. Error: {e}"
                 )
             raise FileNotFoundError(
@@ -587,8 +584,8 @@ class VLLMServerBackend(InferenceBackend):
         except PermissionError as e:
             if self._run_sandboxed:
                 raise PermissionError(
-                    f"Permission denied starting sandboxed vLLM. Ensure passwordless sudo "
-                    f"is configured for setpriv. Error: {e}"
+                    f"Permission denied starting sandboxed vLLM. Ensure the current user "
+                    f"can run setpriv to switch to '{self._sandbox_user}'. Error: {e}"
                 )
             raise PermissionError(
                 f"No execute permission for: {self._vllm_executable}"
