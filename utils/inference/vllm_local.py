@@ -30,6 +30,9 @@ class VLLMLocalBackend(InferenceBackend):
     Multiple requests are batched together by the engine for optimal GPU utilization.
     """
 
+    # When True, only params in ALLOWED_ENV_VARS and KNOWN_INIT_PARAMS are accepted
+    RESTRICT_TO_ALLOWLIST = False
+
     # Allowed environment variables that can be set via ENV_VARS config
     ALLOWED_ENV_VARS = {
         "VLLM_ATTENTION_BACKEND",
@@ -170,9 +173,9 @@ class VLLMLocalBackend(InferenceBackend):
         self._loop.run_forever()
 
     def _set_env_vars(self, env_vars: dict[str, str]) -> None:
-        """Set allowed environment variables before vLLM import."""
+        """Set environment variables before vLLM import."""
         for key, value in env_vars.items():
-            if key not in self.ALLOWED_ENV_VARS:
+            if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
                 logger.warning(
                     f"VLLMLocalBackend: Ignoring disallowed env var: {key}. "
                     f"Allowed: {self.ALLOWED_ENV_VARS}"

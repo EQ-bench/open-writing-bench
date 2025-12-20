@@ -34,6 +34,33 @@ from .base import InferenceBackend
 logger = logging.getLogger(__name__)
 
 
+def _get_gpu_count() -> int:
+    """Get the number of available GPUs."""
+    try:
+        import torch
+        return torch.cuda.device_count() or 1
+    except ImportError:
+        pass
+
+    # Fallback: check CUDA_VISIBLE_DEVICES
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if cuda_devices:
+        return len([d for d in cuda_devices.split(",") if d.strip()])
+
+    # Fallback: try nvidia-smi
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return len(result.stdout.strip().split("\n"))
+    except Exception:
+        pass
+
+    return 1
+
+
 def _find_vllm_executable() -> Optional[str]:
     """
     Find the vllm executable (for 'vllm serve' command).
@@ -71,6 +98,9 @@ class VLLMServerBackend(InferenceBackend):
     This enables true request parallelism through concurrent HTTP requests,
     which works better with vLLM's continuous batching than sequential in-process calls.
     """
+
+    # When True, only params in ALLOWED_ENV_VARS and KNOWN_INIT_PARAMS are accepted
+    RESTRICT_TO_ALLOWLIST = False
 
     # Allowed environment variables that can be set via ENV_VARS config
     ALLOWED_ENV_VARS = {
@@ -227,7 +257,7 @@ class VLLMServerBackend(InferenceBackend):
 
         if self._env_vars:
             for key, value in self._env_vars.items():
-                if key not in self.ALLOWED_ENV_VARS:
+                if self.RESTRICT_TO_ALLOWLIST and key not in self.ALLOWED_ENV_VARS:
                     logger.warning(
                         f"VLLMServerBackend: Ignoring disallowed env var: {key}. "
                         f"Allowed: {self.ALLOWED_ENV_VARS}"
