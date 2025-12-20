@@ -19,6 +19,7 @@ import uuid
 from typing import Any, Optional
 
 from .base import InferenceBackend
+from .trust_remote_code import should_trust_remote_code
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +141,11 @@ class VLLMLocalBackend(InferenceBackend):
             tensor_parallel_size = _get_gpu_count()
             logger.info(f"Auto-detected {tensor_parallel_size} GPU(s) for tensor parallelism")
 
-        # Filter out trust_remote_code if passed (always disabled for security)
-        kwargs.pop("trust_remote_code", None)
+        # Determine trust_remote_code based on allowlist
+        self._trust_remote_code = should_trust_remote_code(model_name)
+        if self._trust_remote_code:
+            logger.info(f"Enabling trust_remote_code for model: {model_name}")
+        kwargs.pop("trust_remote_code", None)  # Ignore user-provided value
         super().__init__(model_name, **kwargs)
 
         self.max_concurrent = max_concurrent
@@ -163,7 +167,7 @@ class VLLMLocalBackend(InferenceBackend):
             "tensor_parallel_size": tensor_parallel_size,
             "gpu_memory_utilization": gpu_memory_utilization,
             "dtype": dtype,
-            "trust_remote_code": False,
+            "trust_remote_code": self._trust_remote_code,
             "disable_log_requests": True,
             "max_log_len": 0,
         }

@@ -30,6 +30,7 @@ from typing import Any, Optional
 import requests
 
 from .base import InferenceBackend
+from .trust_remote_code import should_trust_remote_code
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,11 @@ class VLLMServerBackend(InferenceBackend):
         # Model name for API requests
         self._served_model_name = served_model_name or model_name
 
+        # Determine trust_remote_code based on allowlist
+        self._trust_remote_code = should_trust_remote_code(model_name)
+        if self._trust_remote_code:
+            logger.info(f"Enabling trust_remote_code for model: {model_name}")
+
         # Default tensor_parallel_size to number of available GPUs
         if tensor_parallel_size is None:
             tensor_parallel_size = _get_gpu_count()
@@ -334,8 +340,9 @@ class VLLMServerBackend(InferenceBackend):
         args.extend(["--host", self.host])
         args.extend(["--port", str(self.port)])
 
-        # Security: Always enforce these options
-        args.extend(["--no-trust-remote-code"])
+        # Security: Control trust_remote_code based on allowlist
+        if self._trust_remote_code:
+            args.extend(["--trust-remote-code"])
         args.extend(["--load-format", "safetensors"])
 
         # Core engine args
