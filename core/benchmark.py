@@ -292,17 +292,12 @@ def run_eq_bench_creative(
                         num_chapters=num_chapters,
                         progress=progress,
                     ))
-                # Process futures and periodically flush progress
-                completed_count = 0
+                # Process futures (progress auto-flushes every 15s via maybe_flush)
                 for future in tqdm(list(futures), desc="Generating multi-turn pieces"):
                     try:
                         future.result()
                     except Exception as e:
                         logging.error(f"An error occurred during multi-turn generation: {e}", exc_info=True)
-                    completed_count += 1
-                    # Flush progress every 5 tasks
-                    if completed_count % 5 == 0:
-                        progress.flush_generation_to_db()
         else:
             # Single-turn generation (legacy mode)
             # if the client supports batch, submit in batches; else keep thread pool
@@ -356,20 +351,16 @@ def run_eq_bench_creative(
                         task_controller = CreativeWritingTask(task)
                         future = executor.submit(task_controller.generate_creative_piece, test_model_client, prompt)
                         futures.append(future)
-                    completed_count = 0
+                    # Process futures (progress auto-flushes every 15s via maybe_flush)
                     for future in tqdm(list(futures), desc="Generating creative pieces"):
                         try:
                             future.result()
-                            # Check if task succeeded or failed by querying its status
                             # (generate_creative_piece updates DB directly)
                             progress.inc_completed_tasks()
                             progress.inc_completed_turns()
                         except Exception as e:
                             logging.error(f"An error occurred during generation future execution: {e}", exc_info=True)
                             progress.inc_generation_errors()
-                        completed_count += 1
-                        if completed_count % 5 == 0:
-                            progress.flush_generation_to_db()
     else:
         logging.info("No tasks require generation.")
 
@@ -449,7 +440,7 @@ def run_eq_bench_creative(
                     lexical_stats=precomputed_stats,
                 ))
 
-            completed_count = 0
+            # Process futures (progress auto-flushes every 15s via maybe_flush)
             for future in tqdm(list(futures), desc="Judging creative pieces"):
                 try:
                     task_cost = future.result()
@@ -459,9 +450,6 @@ def run_eq_bench_creative(
                 except Exception as e:
                     logging.error(f"An error occurred during judging future execution: {e}", exc_info=True)
                     progress.inc_rubric_errors()
-                completed_count += 1
-                if completed_count % 5 == 0:
-                    progress.flush_judging_to_db()
 
         logging.info(f"Rubric judging complete. Total cost: ${rubric_judging_cost:.4f}")
     else:

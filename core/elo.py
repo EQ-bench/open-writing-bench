@@ -1009,14 +1009,11 @@ def run_elo_analysis_creative(
                             elo_judging_cost += opponent_cost
                             if comps_from_opponent:
                                 round_comparisons_from_judging.extend(comps_from_opponent)
-                                # Update progress with completed comparisons
+                                # Update progress (auto-flushes every 15s via maybe_flush)
                                 if progress:
                                     progress.inc_elo_comparisons(len(comps_from_opponent))
                         except Exception as e:
                             logging.error(f"[ELO-CW] Error processing opponent {opponent_name}: {e}", exc_info=True)
-                    # Flush progress after each round of opponent processing
-                    if progress:
-                        progress.flush_judging_to_db()
             else:
                 logging.debug("[ELO-CW] No matchups to process this round.")
 
