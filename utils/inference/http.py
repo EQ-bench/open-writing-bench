@@ -148,6 +148,9 @@ class HTTPBackend(InferenceBackend):
             elif self.model_name.startswith("openai/"):
                 print('openai no reasoning')
                 payload["reasoning"] = {"effort": "minimal"}
+            if self.model_name.startswith("google/gemini-3"):
+                print('gemini 3 no reasoning')
+                payload["reasoning"] = {"max_tokens": 1}
 
         return payload
 
