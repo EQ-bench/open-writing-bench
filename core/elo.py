@@ -8,7 +8,10 @@ import json
 from pathlib import Path
 import random # For _pick_matchups if not using cw_rng explicitly
 import copy # For deep copying
-from typing import Dict, Any, List, Tuple, Optional, Set
+from typing import Dict, Any, List, Tuple, Optional, Set, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.progress import RunProgress
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone # For timestamps
 from collections import defaultdict
@@ -526,6 +529,7 @@ def run_elo_analysis_creative(
     concurrency: int,
     disable_elo_reasoning: bool = False,
     ensemble_mode: str = 'vote_avg',
+    progress: Optional["RunProgress"] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], float]:
     """
     Refactored ELO analysis for Creative Writing using TrueSkill, EQB3-style sampling, and DB storage.
@@ -535,6 +539,7 @@ def run_elo_analysis_creative(
         disable_elo_reasoning: If True, remove chain-of-thought reasoning from pairwise prompts.
         ensemble_mode: Ensemble judging mode - 'vote_avg', 'vote_maj', or 'split'.
                       In 'split' mode, each pairwise comparison is assigned to one judge (round-robin).
+        progress: Optional RunProgress tracker for ELO stage progress.
 
     Returns:
         Tuple of (final_elo_snapshot, error_message, total_judging_cost_usd)
@@ -738,7 +743,18 @@ def run_elo_analysis_creative(
     MAX_ITERS_PER_MODEL_FOR_PAIRING = 2 
 
     total_stages = len(SAMPLING_SCHEDULE)
+
+    # Initialize ELO progress tracking
+    if progress:
+        progress.set_elo_stages(total_stages)
+        progress.flush_judging_to_db()
+
     for stage_idx, (radius_tiers, samples_at_closest_tier) in enumerate(SAMPLING_SCHEDULE, start=1):
+        # Update ELO stage progress
+        if progress:
+            progress.set_elo_stage(stage_idx)
+            progress.flush_judging_to_db()
+
         loops, stable = 0, False
         is_final_stage = (stage_idx == total_stages)
         while (
@@ -992,8 +1008,14 @@ def run_elo_analysis_creative(
                             elo_judging_cost += opponent_cost
                             if comps_from_opponent:
                                 round_comparisons_from_judging.extend(comps_from_opponent)
+                                # Update progress with completed comparisons
+                                if progress:
+                                    progress.inc_elo_comparisons(len(comps_from_opponent))
                         except Exception as e:
                             logging.error(f"[ELO-CW] Error processing opponent {opponent_name}: {e}", exc_info=True)
+                    # Flush progress after each round of opponent processing
+                    if progress:
+                        progress.flush_judging_to_db()
             else:
                 logging.debug("[ELO-CW] No matchups to process this round.")
 

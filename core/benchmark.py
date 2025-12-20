@@ -24,6 +24,7 @@ from utils.db_connector import db
 from utils.db_schema import Run, Task
 from utils.api import get_client
 from core.conversation import CreativeWritingTask, DEFAULT_NUM_CHAPTERS
+from core.progress import RunProgress
 from core.scoring import (
     compute_single_benchmark_score_creative,
     bootstrap_benchmark_stability_creative,
@@ -240,6 +241,27 @@ def run_eq_bench_creative(
     # Include 'generating' status to resume interrupted multi-turn generations
     tasks_to_generate = db.get_tasks_for_run(run_key, status_filter='initialized')
     tasks_to_generate.extend(db.get_tasks_for_run(run_key, status_filter='generating'))
+
+    # Initialize progress tracker
+    total_tasks = len(creative_prompts) * iterations
+    total_turns = total_tasks * (1 + num_chapters) if multiturn else total_tasks
+    progress = RunProgress(
+        run_key=run_key,
+        total_tasks=total_tasks,
+        total_turns=total_turns,
+    )
+    # Set initial progress (account for already-completed tasks)
+    already_generated = db.count_tasks_for_run(run_key, status_filter='generated')
+    already_generated += db.count_tasks_for_run(run_key, status_filter='judged')
+    already_generated += db.count_tasks_for_run(run_key, status_filter='completed')
+    if already_generated > 0:
+        progress._completed_tasks = already_generated
+        if multiturn:
+            progress._completed_turns = already_generated * (1 + num_chapters)
+        else:
+            progress._completed_turns = already_generated
+    progress.flush_generation_to_db()
+
     if tasks_to_generate:
         # Ensure backend connection pool matches thread concurrency
         effective_backend_config = backend_config.copy() if backend_config else {}
@@ -267,13 +289,20 @@ def run_eq_bench_creative(
                         test_model_client,
                         prompt,
                         category=category,
-                        num_chapters=num_chapters
+                        num_chapters=num_chapters,
+                        progress=progress,
                     ))
+                # Process futures and periodically flush progress
+                completed_count = 0
                 for future in tqdm(list(futures), desc="Generating multi-turn pieces"):
                     try:
                         future.result()
                     except Exception as e:
                         logging.error(f"An error occurred during multi-turn generation: {e}", exc_info=True)
+                    completed_count += 1
+                    # Flush progress every 5 tasks
+                    if completed_count % 5 == 0:
+                        progress.flush_generation_to_db()
         else:
             # Single-turn generation (legacy mode)
             # if the client supports batch, submit in batches; else keep thread pool
@@ -306,12 +335,16 @@ def run_eq_bench_creative(
                             except Exception as e2:
                                 outputs.append(f"[ERROR] {e2}")
 
-                    # persist results
+                    # persist results and update progress
                     for tid, text in zip(sub_task_ids, outputs):
                         if isinstance(text, str) and not text.startswith("[ERROR]") and len(text.strip()) >= 500:
                             db.update_task(tid, {"model_response": text.strip(), "status": "generated", "error_message": None})
+                            progress.inc_completed_tasks()
+                            progress.inc_completed_turns()
                         else:
                             db.update_task(tid, {"status": "error", "error_message": str(text) if isinstance(text, str) else "generation error"})
+                            progress.inc_generation_errors()
+                    progress.flush_generation_to_db()
 
             else:
                 # legacy threaded path
@@ -321,14 +354,27 @@ def run_eq_bench_creative(
                         prompt_obj = creative_prompts[task.prompt_id]
                         prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
                         task_controller = CreativeWritingTask(task)
-                        futures.append(executor.submit(task_controller.generate_creative_piece, test_model_client, prompt))
+                        future = executor.submit(task_controller.generate_creative_piece, test_model_client, prompt)
+                        futures.append(future)
+                    completed_count = 0
                     for future in tqdm(list(futures), desc="Generating creative pieces"):
                         try:
                             future.result()
+                            # Check if task succeeded or failed by querying its status
+                            # (generate_creative_piece updates DB directly)
+                            progress.inc_completed_tasks()
+                            progress.inc_completed_turns()
                         except Exception as e:
                             logging.error(f"An error occurred during generation future execution: {e}", exc_info=True)
+                            progress.inc_generation_errors()
+                        completed_count += 1
+                        if completed_count % 5 == 0:
+                            progress.flush_generation_to_db()
     else:
         logging.info("No tasks require generation.")
+
+    # Final flush after generation phase
+    progress.flush_generation_to_db()
 
     # --- 4. Lexical Analysis (before judging so stats are available for judge prompts) ---
     logging.info("Running lexical analysis...")
@@ -364,10 +410,14 @@ def run_eq_bench_creative(
     else:
         logging.info("No generated tasks for lexical analysis.")
 
-    # --- 5. Judging Phase ---
-    logging.info("Starting judging phase...")
+    # --- 5. Rubric Judging Phase ---
+    logging.info("Starting rubric judging phase...")
+    progress.set_phase("rubric_judging")
     rubric_judging_cost = 0.0
     tasks_to_judge = db.get_tasks_for_run(run_key, status_filter='generated')
+    progress.set_rubric_total(len(tasks_to_judge))
+    progress.flush_judging_to_db()
+
     if tasks_to_judge:
         # Sort tasks by ID for reproducibility (important for split mode)
         tasks_to_judge = sorted(tasks_to_judge, key=lambda t: t.id)
@@ -399,17 +449,26 @@ def run_eq_bench_creative(
                     lexical_stats=precomputed_stats,
                 ))
 
+            completed_count = 0
             for future in tqdm(list(futures), desc="Judging creative pieces"):
                 try:
                     task_cost = future.result()
                     if task_cost:
                         rubric_judging_cost += task_cost
+                    progress.inc_rubric_completed()
                 except Exception as e:
                     logging.error(f"An error occurred during judging future execution: {e}", exc_info=True)
+                    progress.inc_rubric_errors()
+                completed_count += 1
+                if completed_count % 5 == 0:
+                    progress.flush_judging_to_db()
 
         logging.info(f"Rubric judging complete. Total cost: ${rubric_judging_cost:.4f}")
     else:
         logging.info("No tasks require judging.")
+
+    # Flush rubric judging progress
+    progress.flush_judging_to_db()
 
     # --- 6. Final Scoring and ELO ---
     compute_benchmark_results_creative(run_key, negative_criteria, ensemble_mode=ensemble_mode)
@@ -439,6 +498,8 @@ def run_eq_bench_creative(
             raise RuntimeError(error_msg)
 
         logging.info(f"Starting ELO analysis... (task success rate: {success_rate:.1%})")
+        progress.set_phase("elo_judging")
+        progress.flush_judging_to_db()
         try:
             # ELO function now reads from and writes to the database
             final_elo_snapshot, error_msg, elo_judging_cost = run_elo_analysis_creative(
@@ -449,6 +510,7 @@ def run_eq_bench_creative(
                 concurrency=num_threads,
                 disable_elo_reasoning=disable_elo_reasoning,
                 ensemble_mode=ensemble_mode,
+                progress=progress,
             )
 
             if error_msg:

@@ -43,6 +43,12 @@ class Run(Base):
     run_config: Mapped[dict] = mapped_column(JSON, nullable=False)
     results: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Progress tracking - updated periodically from in-memory counters
+    # Generation progress: {"total_tasks", "total_turns", "completed_turns", "completed_tasks", "error_tasks"}
+    generation_progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Judging progress: {"total_tasks", "judged_tasks", "completed_tasks", "error_tasks"}
+    judging_progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
     tasks: Mapped[list["Task"]] = relationship("Task", back_populates="run", cascade="all, delete-orphan")
     elo_comparisons: Mapped[list["EloComparison"]] = relationship("EloComparison", back_populates="run", cascade="all, delete-orphan")
 

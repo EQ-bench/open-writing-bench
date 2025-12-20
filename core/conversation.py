@@ -14,7 +14,10 @@ Supports both single-turn (legacy) and multi-turn (longform) generation modes.
 import time
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.progress import RunProgress
 
 from utils.db_connector import db
 from utils.db_schema import Task, JudgeResult
@@ -170,7 +173,8 @@ class CreativeWritingTask:
         chapter_first_template: Optional[str] = None,
         chapter_intermediate_template: Optional[str] = None,
         chapter_last_template: Optional[str] = None,
-        max_retries: int = 3
+        max_retries: int = 3,
+        progress: Optional["RunProgress"] = None,
     ):
         """
         Generate a multi-turn creative piece with planning and chapters.
@@ -269,6 +273,11 @@ class CreativeWritingTask:
                         f"({turn['turn_type']}) - {len(response.strip())} chars"
                     )
                     success = True
+
+                    # Update progress tracker
+                    if progress:
+                        progress.inc_completed_turns()
+
                     break
 
                 except Exception as e:
@@ -285,6 +294,9 @@ class CreativeWritingTask:
                             "status": "error",
                             "error_message": f"Failed at turn {turn_idx}: {str(e)}"
                         })
+                        # Update progress tracker - task errored
+                        if progress:
+                            progress.inc_generation_errors()
                         return
                     time.sleep(1)
 
@@ -294,6 +306,10 @@ class CreativeWritingTask:
         # All turns generated successfully
         db.update_task(self.db_task.id, {"status": "generated", "error_message": None})
         logging.info(f"Task {self.db_task.id}: Multi-turn generation completed successfully.")
+
+        # Update progress tracker - task completed
+        if progress:
+            progress.inc_completed_tasks()
 
     def _build_conversation_history(
         self,
