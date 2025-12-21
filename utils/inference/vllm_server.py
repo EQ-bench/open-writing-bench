@@ -324,6 +324,10 @@ class VLLMServerBackend(InferenceBackend):
             # Inherit CUDA_VISIBLE_DEVICES from parent if set (critical for GPU selection)
             if "CUDA_VISIBLE_DEVICES" in os.environ:
                 env["CUDA_VISIBLE_DEVICES"] = os.environ["CUDA_VISIBLE_DEVICES"]
+            # Inherit HF_TOKEN for gated model access
+            for hf_token_var in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+                if hf_token_var in os.environ:
+                    env[hf_token_var] = os.environ[hf_token_var]
             # Add any allowed ENV_VARS from config
             if self._env_vars:
                 for key, value in self._env_vars.items():
