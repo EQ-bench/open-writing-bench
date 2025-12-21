@@ -12,27 +12,60 @@ from utils.db_schema import JudgeResult
 SCORE_RANGE_MIN = 0
 SCORE_RANGE_MAX = 20
 def parse_judge_scores_creative(judge_model_response: str) -> Dict[str, float]:
+    """
+    Parse judge scores from the [Scores] section of the response.
+
+    Returns a dict with:
+      - Each metric name -> float score
+      - "analysis_text" -> the text from the [Analysis] section (if present)
+    """
     scores = {}
 
-    # Parse scores using multiple regex patterns
+    # Extract the [Scores] section - only parse scores from there
+    # Look for [Scores] header and take everything after it
+    scores_section = None
+    analysis_text = None
+
+    # Try to find [Scores] section
+    scores_match = re.search(r'\[Scores?\]', judge_model_response, re.IGNORECASE)
+    if scores_match:
+        scores_section = judge_model_response[scores_match.end():]
+    else:
+        # Fallback: if no [Scores] header, use the whole response
+        # (for backwards compatibility with responses that don't use sections)
+        scores_section = judge_model_response
+
+    # Extract [Analysis] section text if present
+    analysis_match = re.search(r'\[Analysis\](.*?)(?=\[Scores?\]|\Z)', judge_model_response, re.IGNORECASE | re.DOTALL)
+    if analysis_match:
+        analysis_text = analysis_match.group(1).strip()
+        scores["analysis_text"] = analysis_text
+
+    # Parse scores using multiple regex patterns (only from scores section)
     # Pattern 1: Metric: Score or Metric: Score X
-    score_pattern1 = r'(.*?):\s*(?:Score\s+)?(-?\d+(?:\.\d+)?)'
+    score_pattern1 = r'^(.*?):\s*(?:Score\s+)?(-?\d+(?:\.\d+)?)\s*$'
     # Pattern 2: Metric: [Score]
-    score_pattern2 = r'(.*?):\s*\[(-?\d+(?:\.\d+)?)\]'
-    
-    # Combine both patterns
-    matches1 = re.findall(score_pattern1, judge_model_response)
-    matches2 = re.findall(score_pattern2, judge_model_response)
-    
-    # Process matches from both patterns
-    for matches in [matches1, matches2]:
-        for match in matches:
-            metric_name = match[0].strip()
-            score = float(match[1])
-            # Add check to ensure score <= 20
-            if score <= SCORE_RANGE_MAX:
+    score_pattern2 = r'^(.*?):\s*\[(-?\d+(?:\.\d+)?)\]\s*$'
+
+    # Process line by line to be more precise
+    for line in scores_section.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # Try pattern 1
+        match = re.match(score_pattern1, line)
+        if not match:
+            # Try pattern 2
+            match = re.match(score_pattern2, line)
+
+        if match:
+            metric_name = match.group(1).strip()
+            score = float(match.group(2))
+            # Add check to ensure score <= 20 and metric name looks valid
+            # (not a sentence fragment from analysis)
+            if score <= SCORE_RANGE_MAX and len(metric_name) < 100:
                 scores[metric_name] = score
-            # If score > 20, it's discarded/ignored
 
     return scores
 
