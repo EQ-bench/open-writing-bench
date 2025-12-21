@@ -320,19 +320,53 @@ class JobRunner:
                 self._process.kill()
 
 
+def kill_sandbox_vllm_processes(sandbox_user: str) -> bool:
+    """Kill any vLLM processes running under the sandbox user.
+
+    Returns:
+        True if any processes were killed, False otherwise.
+    """
+    killed = False
+    try:
+        # First, try to kill by user (most reliable for sandboxed processes)
+        result = subprocess.run(
+            ["pkill", "-u", sandbox_user],
+            capture_output=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            killed = True
+            logger.info(f"Killed processes for user {sandbox_user}")
+
+        # Also try pkill -f vllm for any processes that might have escaped
+        result = subprocess.run(
+            ["pkill", "-f", "vllm"],
+            capture_output=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            killed = True
+            logger.info("Killed vllm processes (by command pattern)")
+
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout while killing processes, forcing with SIGKILL...")
+        try:
+            subprocess.run(["pkill", "-9", "-u", sandbox_user], capture_output=True, timeout=5)
+            subprocess.run(["pkill", "-9", "-f", "vllm"], capture_output=True, timeout=5)
+            killed = True
+        except Exception as e:
+            logger.error(f"Failed to force-kill processes: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to kill vLLM processes: {e}")
+
+    return killed
+
+
 def cleanup_after_job(config: SchedulerConfig):
     """Clean up after a job completes."""
     if config.kill_vllm_processes:
-        logger.info("Killing any remaining vLLM processes...")
-        try:
-            # Kill any python processes with vllm in the command line
-            subprocess.run(
-                ["pkill", "-f", "vllm"],
-                capture_output=True,
-                timeout=10
-            )
-        except Exception as e:
-            logger.warning(f"Failed to kill vLLM processes: {e}")
+        logger.info(f"Killing any remaining vLLM processes (sandbox user: {config.sandbox_user})...")
+        kill_sandbox_vllm_processes(config.sandbox_user)
 
     if config.clear_hf_cache:
         logger.info("Clearing old HuggingFace cache directories...")
@@ -542,6 +576,13 @@ class Scheduler:
             logger.warning(error_msg)
             mark_submission_failed(submission_id, error_msg, self.config)
             return True
+
+        # Pre-run cleanup: ensure no stale vLLM processes from previous runs
+        if self.config.kill_vllm_processes:
+            print("Pre-run cleanup: checking for stale vLLM processes...")
+            if kill_sandbox_vllm_processes(self.config.sandbox_user):
+                print("Killed stale processes, waiting for cleanup...")
+                time.sleep(2)  # Give processes time to fully terminate
 
         try:
             run_key = mark_submission_starting(submission_id)

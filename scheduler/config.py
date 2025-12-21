@@ -26,6 +26,7 @@ class SchedulerConfig:
     # Cleanup settings
     clear_hf_cache: bool = True
     kill_vllm_processes: bool = True
+    sandbox_user: str = "vllm-sandbox"
 
     # Runtime flags (set by CLI, not config file)
     verbose: bool = False
@@ -85,5 +86,6 @@ def load_config(config_path: str | Path | None = None) -> SchedulerConfig:
             cleanup = parser["cleanup"]
             config.clear_hf_cache = cleanup.getboolean("clear_hf_cache", config.clear_hf_cache)
             config.kill_vllm_processes = cleanup.getboolean("kill_vllm_processes", config.kill_vllm_processes)
+            config.sandbox_user = cleanup.get("sandbox_user", config.sandbox_user)
 
     return config
