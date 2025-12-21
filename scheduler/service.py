@@ -134,6 +134,7 @@ class JobRunner:
             "--verbosity", self.config.default_verbosity,
             "--run-id", submission.id,  # Use submission ID as run ID
             "--ensemble-mode", "split",  # Distribute tasks across judges
+            "--disable-elo-reasoning",  # Reduce token usage in ELO comparisons
         ]
 
         if backend_config:
