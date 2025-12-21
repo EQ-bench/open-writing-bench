@@ -16,6 +16,7 @@ class SchedulerConfig:
     log_stream_interval_sec: int = 10
     hard_timeout_sec: int = 7200  # 2 hours default
     max_attempts: int = 1
+    priority_update_interval_sec: int = 60  # How often to update priority scores
 
     # Default job settings
     default_threads: int = 34
@@ -27,6 +28,17 @@ class SchedulerConfig:
     clear_hf_cache: bool = True
     kill_vllm_processes: bool = True
     sandbox_user: str = "vllm-sandbox"
+
+    # Queue ordering settings (rate limiting and fairness)
+    queue_max_cost_per_user_24h: float = 10.0      # $ limit per user per 24h
+    queue_max_cost_per_ip_24h: float = 10.0        # $ limit per IP per 24h
+    queue_max_runtime_per_user_24h_hours: float = 8.0  # Hours limit per user
+    queue_max_runtime_per_ip_24h_hours: float = 8.0    # Hours limit per IP
+    queue_max_concurrent_per_user: int = 3         # Max queued/running jobs per user
+    queue_max_concurrent_per_ip: int = 5           # Max queued/running jobs per IP
+    queue_window_hours: int = 24                   # Rolling window for limits
+    queue_weight_low_cost: float = 10.0            # Priority weight for low cost usage
+    queue_weight_low_runtime: float = 5.0          # Priority weight for low runtime usage
 
     # Runtime flags (set by CLI, not config file)
     verbose: bool = False
@@ -88,4 +100,34 @@ def load_config(config_path: str | Path | None = None) -> SchedulerConfig:
             config.kill_vllm_processes = cleanup.getboolean("kill_vllm_processes", config.kill_vllm_processes)
             config.sandbox_user = cleanup.get("sandbox_user", config.sandbox_user)
 
+        # Queue section (rate limiting and fairness)
+        if parser.has_section("queue"):
+            queue = parser["queue"]
+            config.priority_update_interval_sec = queue.getint("priority_update_interval_sec", config.priority_update_interval_sec)
+            config.queue_max_cost_per_user_24h = queue.getfloat("max_cost_per_user_24h", config.queue_max_cost_per_user_24h)
+            config.queue_max_cost_per_ip_24h = queue.getfloat("max_cost_per_ip_24h", config.queue_max_cost_per_ip_24h)
+            config.queue_max_runtime_per_user_24h_hours = queue.getfloat("max_runtime_per_user_24h_hours", config.queue_max_runtime_per_user_24h_hours)
+            config.queue_max_runtime_per_ip_24h_hours = queue.getfloat("max_runtime_per_ip_24h_hours", config.queue_max_runtime_per_ip_24h_hours)
+            config.queue_max_concurrent_per_user = queue.getint("max_concurrent_per_user", config.queue_max_concurrent_per_user)
+            config.queue_max_concurrent_per_ip = queue.getint("max_concurrent_per_ip", config.queue_max_concurrent_per_ip)
+            config.queue_window_hours = queue.getint("window_hours", config.queue_window_hours)
+            config.queue_weight_low_cost = queue.getfloat("weight_low_cost", config.queue_weight_low_cost)
+            config.queue_weight_low_runtime = queue.getfloat("weight_low_runtime", config.queue_weight_low_runtime)
+
     return config
+
+
+def get_queue_limits(config: SchedulerConfig):
+    """Create QueueLimits from SchedulerConfig."""
+    from .queue_order import QueueLimits
+    return QueueLimits(
+        max_cost_per_user_24h=config.queue_max_cost_per_user_24h,
+        max_cost_per_ip_24h=config.queue_max_cost_per_ip_24h,
+        max_runtime_per_user_24h_sec=int(config.queue_max_runtime_per_user_24h_hours * 3600),
+        max_runtime_per_ip_24h_sec=int(config.queue_max_runtime_per_ip_24h_hours * 3600),
+        max_concurrent_per_user=config.queue_max_concurrent_per_user,
+        max_concurrent_per_ip=config.queue_max_concurrent_per_ip,
+        weight_low_cost=config.queue_weight_low_cost,
+        weight_low_runtime=config.queue_weight_low_runtime,
+        window_hours=config.queue_window_hours,
+    )

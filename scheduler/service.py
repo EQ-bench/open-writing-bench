@@ -28,7 +28,14 @@ from typing import Optional
 from dotenv import load_dotenv
 from sqlalchemy import select, func
 
-from .config import SchedulerConfig, load_config
+from .config import SchedulerConfig, load_config, get_queue_limits
+from .queue_order import (
+    SubmissionData, QueueLimits, QueueDecision,
+    order_queue, extract_cost_from_results
+)
+
+# Global config reference, set by main() or Scheduler
+_scheduler_config: Optional[SchedulerConfig] = None
 
 # Load environment before importing db
 load_dotenv()
@@ -385,21 +392,150 @@ def cleanup_after_job(config: SchedulerConfig):
                         logger.warning(f"Failed to clear {subdir}: {e}")
 
 
+def load_submissions_for_queue_ordering(
+    window_hours: int = 24
+) -> tuple[list[SubmissionData], list[SubmissionData]]:
+    """
+    Load submission data from DB for queue ordering.
+
+    Returns:
+        (pending_submissions, all_submissions_in_window)
+    """
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=window_hours)
+
+    with db.get_session() as session:
+        # Load all submissions in the window (for stats calculation)
+        all_subs = session.execute(
+            select(Submission)
+            .where(Submission.created_at >= window_start)
+        ).scalars().all()
+
+        # Also load any runs to get results/costs
+        run_results: dict[str, dict] = {}
+        if all_subs:
+            run_keys = [s.id for s in all_subs if s.run_key]
+            if run_keys:
+                runs = session.execute(
+                    select(Run).where(Run.run_key.in_(run_keys))
+                ).scalars().all()
+                for run in runs:
+                    run_results[run.run_key] = run.results
+
+        # Convert to SubmissionData
+        pending: list[SubmissionData] = []
+        all_data: list[SubmissionData] = []
+
+        for sub in all_subs:
+            data = SubmissionData(
+                id=sub.id,
+                user_id=sub.user_id,
+                created_ip=sub.created_ip,
+                created_at=sub.created_at,
+                status=sub.status.value if isinstance(sub.status, SubmissionStatus) else str(sub.status),
+                started_at=sub.started_at,
+                finished_at=sub.finished_at,
+                results=run_results.get(sub.id)
+            )
+            all_data.append(data)
+
+            # Pending = SUBMITTED or QUEUED
+            if sub.status in (SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED):
+                pending.append(data)
+
+        return pending, all_data
+
+
+def get_next_submission_with_ordering(limits: Optional[QueueLimits] = None) -> tuple[Optional[Submission], Optional[QueueDecision]]:
+    """
+    Get the next submission to process using queue ordering.
+
+    Returns:
+        (submission, decision) - submission is None if queue is empty or all are held
+    """
+    if limits is None:
+        if _scheduler_config:
+            limits = get_queue_limits(_scheduler_config)
+        else:
+            limits = QueueLimits()
+
+    now = datetime.now(timezone.utc)
+    pending, all_data = load_submissions_for_queue_ordering(limits.window_hours)
+
+    if not pending:
+        return None, None
+
+    # Get ordered decisions
+    decisions = order_queue(pending, all_data, limits=limits, now=now)
+
+    # Find first processable submission
+    for decision in decisions:
+        if decision.action == "process":
+            # Fetch the actual Submission object
+            with db.get_session() as session:
+                submission = session.get(Submission, decision.submission_id)
+                if submission:
+                    session.expunge(submission)
+                    return submission, decision
+        elif decision.action == "hold":
+            # Log hold reason
+            logger.debug(f"Submission {decision.submission_id} held: {decision.hold_reason}")
+
+    return None, None
+
+
+def update_priority_scores(limits: Optional[QueueLimits] = None) -> int:
+    """
+    Update priority_score for all pending submissions.
+
+    Returns:
+        Number of submissions updated.
+    """
+    if limits is None:
+        if _scheduler_config:
+            limits = get_queue_limits(_scheduler_config)
+        else:
+            limits = QueueLimits()
+
+    now = datetime.now(timezone.utc)
+    pending, all_data = load_submissions_for_queue_ordering(limits.window_hours)
+
+    if not pending:
+        return 0
+
+    # Get ordered decisions
+    decisions = order_queue(pending, all_data, limits=limits, now=now)
+
+    # Build a map of submission_id -> new score
+    new_scores: dict[str, float] = {}
+    for decision in decisions:
+        # For held submissions, use a negative score to push them to the back
+        if decision.action == "hold":
+            new_scores[decision.submission_id] = -1.0
+        else:
+            new_scores[decision.submission_id] = decision.priority_score
+
+    # Update in DB, only if changed
+    updated = 0
+    with db.get_session() as session:
+        for sub_id, new_score in new_scores.items():
+            submission = session.get(Submission, sub_id)
+            if submission and submission.priority_score != int(new_score):
+                submission.priority_score = int(new_score)
+                updated += 1
+
+    return updated
+
+
 def get_next_submission() -> Optional[Submission]:
     """Get the next submission to process (SUBMITTED or QUEUED status)."""
-    with db.get_session() as session:
-        submission = session.execute(
-            select(Submission)
-            .where(Submission.status.in_([SubmissionStatus.SUBMITTED, SubmissionStatus.QUEUED]))
-            .order_by(Submission.priority_score.desc(), Submission.created_at.asc())
-            .limit(1)
-        ).scalar_one_or_none()
+    # Use the new queue ordering
+    submission, decision = get_next_submission_with_ordering()
 
-        if submission:
-            # Detach from session for use outside
-            session.expunge(submission)
+    if decision and decision.action == "process":
+        logger.debug(f"Selected submission {decision.submission_id} with score {decision.priority_score:.2f}")
 
-        return submission
+    return submission
 
 
 def check_model_already_rated(model_id: str) -> bool:
@@ -541,12 +677,37 @@ class Scheduler:
         self.config = config
         self.runner = JobRunner(config)
         self._shutdown = threading.Event()
+        self._priority_updater_thread: Optional[threading.Thread] = None
+        self._last_priority_update = 0.0
+
+        # Set global config for queue ordering functions
+        global _scheduler_config
+        _scheduler_config = config
 
     def _handle_signal(self, signum, frame):
         """Handle shutdown signals."""
         logger.info(f"Received signal {signum}, shutting down...")
         self._shutdown.set()
         self.runner.kill()
+
+    def _priority_updater_loop(self):
+        """Background thread that periodically updates priority scores."""
+        logger.info("Priority score updater started")
+        interval = self.config.priority_update_interval_sec
+
+        while not self._shutdown.is_set():
+            try:
+                limits = get_queue_limits(self.config)
+                updated = update_priority_scores(limits)
+                if updated > 0:
+                    logger.info(f"Updated priority scores for {updated} submissions")
+            except Exception as e:
+                logger.error(f"Error updating priority scores: {e}")
+
+            # Wait for next update interval or shutdown
+            self._shutdown.wait(timeout=interval)
+
+        logger.info("Priority score updater stopped")
 
     def run_once(self) -> bool:
         """
@@ -634,9 +795,32 @@ class Scheduler:
         logger.info("Scheduler started")
         logger.info(f"Poll interval: {self.config.poll_interval_sec}s")
         logger.info(f"Hard timeout: {self.config.hard_timeout_sec}s")
+        logger.info(f"Priority update interval: {self.config.priority_update_interval_sec}s")
         logger.info(f"Verbose mode: {self.config.verbose}")
+
+        # Log queue limits
+        limits = get_queue_limits(self.config)
+        logger.info(f"Queue limits: ${limits.max_cost_per_user_24h}/user, ${limits.max_cost_per_ip_24h}/IP, "
+                   f"{limits.max_runtime_per_user_24h_sec/3600:.0f}h runtime/user")
+
         print(f"Polling for jobs every {self.config.poll_interval_sec}s...")
+        print(f"Priority scores updated every {self.config.priority_update_interval_sec}s")
         print()
+
+        # Start background priority updater thread
+        self._priority_updater_thread = threading.Thread(
+            target=self._priority_updater_loop,
+            daemon=True,
+            name="priority-updater"
+        )
+        self._priority_updater_thread.start()
+
+        # Do an initial priority score update
+        try:
+            updated = update_priority_scores()
+            logger.info(f"Initial priority score update: {updated} submissions")
+        except Exception as e:
+            logger.error(f"Error in initial priority update: {e}")
 
         while not self._shutdown.is_set():
             try:
@@ -651,6 +835,10 @@ class Scheduler:
             except Exception as e:
                 logger.exception(f"Error in scheduler loop: {e}")
                 self._shutdown.wait(timeout=self.config.poll_interval_sec)
+
+        # Wait for priority updater to stop
+        if self._priority_updater_thread and self._priority_updater_thread.is_alive():
+            self._priority_updater_thread.join(timeout=5)
 
         logger.info("Scheduler stopped")
         print("\nScheduler stopped.")
