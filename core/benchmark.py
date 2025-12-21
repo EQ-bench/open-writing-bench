@@ -27,7 +27,8 @@ from core.progress import RunProgress, log_progress
 from core.scoring import (
     compute_single_benchmark_score_creative,
     bootstrap_benchmark_stability_creative,
-    aggregate_ensemble_scores_bulk
+    aggregate_ensemble_scores_bulk,
+    compute_rubric_dimension_stats
 )
 from core.elo import run_elo_analysis_creative
 from core.analysis import analyze_task, aggregate_analyses, format_analysis_summary
@@ -99,6 +100,7 @@ def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str
 
     summary_result = compute_single_benchmark_score_creative(completed_tasks, negative_criteria)
     boot_stats = bootstrap_benchmark_stability_creative(completed_tasks, negative_criteria)
+    rubric_stats = compute_rubric_dimension_stats(completed_tasks, negative_criteria)
 
     # Prepare final results structure
     current_run_data = db.get_run(run_key)
@@ -108,7 +110,8 @@ def compute_benchmark_results_creative(run_key: str, negative_criteria: List[str
     bench_results.update({
         "creative_score_0_20": summary_result["overall_score"],
         "eqbench_creative_score": summary_result["eqbench_creative_score"],
-        "bootstrap_analysis": boot_stats
+        "bootstrap_analysis": boot_stats,
+        "rubric_dimensions": rubric_stats
     })
     results_dict["benchmark_results"] = bench_results
     

@@ -164,6 +164,103 @@ def bootstrap_benchmark_stability_creative(tasks, negative_criteria, n_bootstrap
     }
 
 
+def compute_rubric_dimension_stats(tasks, negative_criteria, n_bootstrap=500, confidence_level=0.95):
+    """
+    Computes aggregated statistics for each rubric dimension across all tasks.
+
+    For each dimension, calculates:
+      - mean: average score across all tasks
+      - sd: sample standard deviation
+      - ci95_lower/ci95_upper: 95% confidence interval via bootstrap
+
+    Args:
+        tasks: List of Task objects with aggregated_scores
+        negative_criteria: List of criteria names that are negative (scores are inverted)
+        n_bootstrap: Number of bootstrap samples for CI calculation
+        confidence_level: Confidence level for CI (default 0.95)
+
+    Returns:
+        Dict mapping dimension names to their statistics:
+        {
+            "dimension_name": {
+                "mean": float,
+                "sd": float,
+                "ci95_lower": float,
+                "ci95_upper": float,
+                "n_tasks": int
+            },
+            ...
+        }
+    """
+    # Collect per-dimension scores from all tasks
+    dimension_scores: Dict[str, List[float]] = {}
+
+    for task in tasks:
+        # Handle both SQLAlchemy Task objects and dicts
+        if hasattr(task, 'aggregated_scores') and task.aggregated_scores:
+            per_metric = task.aggregated_scores.get('per_metric', {})
+        elif isinstance(task, dict) and 'aggregated_scores' in task:
+            per_metric = task['aggregated_scores'].get('per_metric', {})
+        else:
+            continue
+
+        for metric, score in per_metric.items():
+            if isinstance(score, (int, float)) and score <= SCORE_RANGE_MAX:
+                # Apply inversion for negative criteria
+                inverted_score = invert_if_negative(metric, score, negative_criteria)
+                if metric not in dimension_scores:
+                    dimension_scores[metric] = []
+                dimension_scores[metric].append(inverted_score)
+
+    if not dimension_scores:
+        return {}
+
+    # Compute stats for each dimension
+    result = {}
+    for dimension, scores in dimension_scores.items():
+        if not scores:
+            continue
+
+        n_tasks = len(scores)
+        mean_score = float(np.mean(scores))
+
+        # Standard deviation (sample sd with Bessel's correction)
+        if n_tasks > 1:
+            sd_score = float(np.std(scores, ddof=1))
+        else:
+            sd_score = 0.0
+
+        # Bootstrap for 95% CI
+        if n_tasks >= 2:
+            boot_means = []
+            for _ in range(n_bootstrap):
+                sample = random.choices(scores, k=n_tasks)
+                boot_means.append(np.mean(sample))
+
+            boot_means.sort()
+            lower_idx = int((1 - confidence_level) / 2 * len(boot_means))
+            upper_idx = int((1 + confidence_level) / 2 * len(boot_means)) - 1
+            lower_idx = max(0, lower_idx)
+            upper_idx = min(upper_idx, len(boot_means) - 1)
+
+            ci_lower = float(boot_means[lower_idx])
+            ci_upper = float(boot_means[upper_idx])
+        else:
+            # Single task - no CI possible
+            ci_lower = mean_score
+            ci_upper = mean_score
+
+        result[dimension] = {
+            "mean": round(mean_score, 3),
+            "sd": round(sd_score, 3),
+            "ci95_lower": round(ci_lower, 3),
+            "ci95_upper": round(ci_upper, 3),
+            "n_tasks": n_tasks
+        }
+
+    return result
+
+
 def aggregate_ensemble_scores(task_id: int, aggregation_method: str = 'average_with_outlier_removal'):
     """
     Aggregates scores from multiple judges for a single task into a final score.
