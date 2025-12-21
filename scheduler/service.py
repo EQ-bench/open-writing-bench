@@ -41,7 +41,7 @@ _scheduler_config: Optional[SchedulerConfig] = None
 load_dotenv()
 
 from utils.db_connector import db
-from utils.db_schema import Submission, SubmissionStatus, RunLog, EventLog, Run, EloRating
+from utils.db_schema import Submission, SubmissionStatus, RunLog, EventLog, Run, EloRating, User
 
 logger = logging.getLogger(__name__)
 
@@ -422,6 +422,17 @@ def load_submissions_for_queue_ordering(
                 for run in runs:
                     run_results[run.run_key] = run.results
 
+        # Load user roles for admin bypass
+        user_roles: dict[str, str] = {}
+        user_ids = {s.user_id for s in all_subs if s.user_id}
+        if user_ids:
+            users = session.execute(
+                select(User).where(User.id.in_(user_ids))
+            ).scalars().all()
+            for user in users:
+                if user.role:
+                    user_roles[user.id] = user.role
+
         # Convert to SubmissionData
         pending: list[SubmissionData] = []
         all_data: list[SubmissionData] = []
@@ -435,7 +446,8 @@ def load_submissions_for_queue_ordering(
                 status=sub.status.value if isinstance(sub.status, SubmissionStatus) else str(sub.status),
                 started_at=sub.started_at,
                 finished_at=sub.finished_at,
-                results=run_results.get(sub.id)
+                results=run_results.get(sub.id),
+                user_role=user_roles.get(sub.user_id)
             )
             all_data.append(data)
 

@@ -20,7 +20,8 @@ def make_submission(
     status: str = "SUBMITTED",
     started_at: datetime = None,
     finished_at: datetime = None,
-    cost_usd: float = 0.0
+    cost_usd: float = 0.0,
+    user_role: str = None
 ) -> SubmissionData:
     """Helper to create test submission data."""
     results = {"judging_costs": {"total_judging_cost_usd": cost_usd}} if cost_usd else None
@@ -32,7 +33,8 @@ def make_submission(
         status=status,
         started_at=started_at,
         finished_at=finished_at,
-        results=results
+        results=results,
+        user_role=user_role
     )
 
 
@@ -130,6 +132,8 @@ def run_comparison():
         make_submission("p_shared2", "shared_ip_user2", "shared_ip", now - timedelta(minutes=55)),
         # New user but using the shared abusive IP
         make_submission("p_new_shared", "new_on_shared_ip", "shared_ip", now - timedelta(minutes=20)),
+        # Admin user - should bypass all limits and get top priority
+        make_submission("p_admin", "admin_user", "ip_admin", now - timedelta(minutes=5), user_role="admin"),
     ]
 
     # Build a lookup for user info
@@ -144,7 +148,7 @@ def run_comparison():
         user_info[uid]["jobs"] += 1
 
     # Add new users
-    for uid in ["new1", "new2", "new3", "new_on_shared_ip"]:
+    for uid in ["new1", "new2", "new3", "new_on_shared_ip", "admin_user"]:
         user_info[uid] = {"cost": 0.0, "runtime_h": 0.0, "jobs": 0}
 
     # IP info

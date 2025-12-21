@@ -38,6 +38,9 @@ class SubmissionData:
     finished_at: Optional[datetime] = None
     results: Optional[dict] = None  # Contains judging_costs.total_judging_cost_usd
 
+    # User info
+    user_role: Optional[str] = None  # "admin" users bypass limits
+
 
 @dataclass
 class QueueLimits:
@@ -344,9 +347,28 @@ def order_queue(
             all_submissions, ip, "ip", window_start, now
         )
 
+    # Max possible score for admin priority boost
+    max_score = limits.weight_low_cost + limits.weight_low_runtime
+
     decisions: list[QueueDecision] = []
 
     for sub in pending_submissions:
+        # Admin users bypass all limits and get max priority
+        is_admin = sub.user_role == "admin"
+
+        if is_admin:
+            # Admin users bypass limits but get normal max score (no boost)
+            decisions.append(QueueDecision(
+                submission_id=sub.id,
+                action="process",
+                priority_score=max_score,
+                created_at=sub.created_at,
+                user_stats=None,
+                ip_stats=None,
+                score_breakdown={"admin": True, "final_score": max_score}
+            ))
+            continue
+
         # Get stats (or create empty stats for anonymous)
         user_stats = user_stats_cache.get(sub.user_id) or UserStats(entity_id="anonymous", entity_type="user")
         ip_stats = ip_stats_cache.get(sub.created_ip) or UserStats(entity_id="unknown", entity_type="ip")
