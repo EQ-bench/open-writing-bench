@@ -230,8 +230,9 @@ class VLLMServerBackend(InferenceBackend):
             **kwargs: Additional vLLM engine args. Special keys:
                 ENV_VARS: dict of environment variables to set before launching vLLM.
         """
-        # Extract ENV_VARS and args before parent init
-        self._env_vars = kwargs.pop("ENV_VARS", None)
+        # Extract ENV_VARS/envVars and args before parent init
+        # Support both ENV_VARS (legacy) and envVars (camelCase from JSON configs)
+        self._env_vars = kwargs.pop("ENV_VARS", None) or kwargs.pop("envVars", None)
         self._structured_args = kwargs.pop("args", None)  # New format: [{"arg": "--flag", "value": ...}, ...]
         super().__init__(model_name, **kwargs)
 
@@ -320,6 +321,9 @@ class VLLMServerBackend(InferenceBackend):
                 "TMPDIR": f"{sandbox_home}/tmp",
                 "PATH": f"{venv_bin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             }
+            # Inherit CUDA_VISIBLE_DEVICES from parent if set (critical for GPU selection)
+            if "CUDA_VISIBLE_DEVICES" in os.environ:
+                env["CUDA_VISIBLE_DEVICES"] = os.environ["CUDA_VISIBLE_DEVICES"]
             # Add any allowed ENV_VARS from config
             if self._env_vars:
                 for key, value in self._env_vars.items():
@@ -613,6 +617,16 @@ class VLLMServerBackend(InferenceBackend):
         logger.info(f"Starting vLLM server: {' '.join(self._cmd)}")
 
         env = self._build_env()
+
+        # Log key config for debugging
+        logger.info(f"vLLM config - sandboxed: {self._run_sandboxed}")
+        if self._env_vars:
+            logger.info(f"vLLM env vars from config: {self._env_vars}")
+        if self._structured_args:
+            logger.info(f"vLLM structured args: {self._structured_args}")
+        # Log CUDA visibility
+        cuda_visible = env.get("CUDA_VISIBLE_DEVICES", "(not set)")
+        logger.info(f"vLLM CUDA_VISIBLE_DEVICES: {cuda_visible}")
 
         # In sandboxed mode, set cwd to sandbox home for proper permissions
         cwd = self.SANDBOX_HOME_BASE if self._run_sandboxed else None
