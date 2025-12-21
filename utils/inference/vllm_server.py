@@ -144,8 +144,24 @@ class VLLMServerBackend(InferenceBackend):
         "max_concurrent", "max_retries", "retry_delay",
         # Startup
         "startup_timeout", "health_check_interval",
-        # Extra CLI args
+        # Extra CLI args (legacy)
         "extra_args",
+        # New structured args format: [{"arg": "--flag", "value": ...}, ...]
+        "args",
+    }
+
+    # Allowed CLI args when RESTRICT_TO_ALLOWLIST is True
+    ALLOWED_ARGS = {
+        "--tensor-parallel-size", "--pipeline-parallel-size",
+        "--gpu-memory-utilization", "--max-model-len",
+        "--dtype", "--quantization", "--kv-cache-dtype",
+        "--tokenizer", "--tokenizer-mode",
+        "--revision", "--download-dir", "--seed",
+        "--enforce-eager", "--max-num-seqs", "--max-num-batched-tokens",
+        "--enable-prefix-caching", "--disable-log-stats",
+        "--served-model-name",
+        "--enable-chunked-prefill", "--max-num-seqs",
+        "--enable-expert-parallel", "--disable-custom-all-reduce",
     }
 
     # Hardcoded sandbox paths
@@ -214,8 +230,9 @@ class VLLMServerBackend(InferenceBackend):
             **kwargs: Additional vLLM engine args. Special keys:
                 ENV_VARS: dict of environment variables to set before launching vLLM.
         """
-        # Extract ENV_VARS before parent init
+        # Extract ENV_VARS and args before parent init
         self._env_vars = kwargs.pop("ENV_VARS", None)
+        self._structured_args = kwargs.pop("args", None)  # New format: [{"arg": "--flag", "value": ...}, ...]
         super().__init__(model_name, **kwargs)
 
         # Sandbox configuration
@@ -402,9 +419,31 @@ class VLLMServerBackend(InferenceBackend):
         args.append("--max-log-len")
         args.append("0")
 
-        # Extra CLI args (passed through directly)
+        # Extra CLI args (passed through directly) - legacy format
         if extra_args:
             args.extend(extra_args)
+
+        # New structured args format: [{"arg": "--flag", "value": ...}, ...]
+        if self._structured_args:
+            for arg_spec in self._structured_args:
+                arg = arg_spec.get("arg")
+                value = arg_spec.get("value")
+
+                if not arg:
+                    continue
+
+                # Apply allowlist filtering if enabled
+                if self.RESTRICT_TO_ALLOWLIST and arg not in self.ALLOWED_ARGS:
+                    logger.warning(
+                        f"VLLMServerBackend: Ignoring disallowed arg: {arg}. "
+                        f"Allowed: {self.ALLOWED_ARGS}"
+                    )
+                    continue
+
+                # Append the arg (and value if not None)
+                args.append(arg)
+                if value is not None:
+                    args.append(str(value))
 
         return args
 
