@@ -202,7 +202,23 @@ class VLLMLocalBackend(InferenceBackend):
         )
         self._engine = future.result()
 
-        logger.info(f"vLLM async engine loaded: {model_name}")
+        # Store the effective max_model_len (either user-provided or from model config)
+        self._max_model_len = max_model_len
+        if self._max_model_len is None:
+            # Get from engine's model config
+            try:
+                model_config = self._engine.engine.model_config
+                self._max_model_len = model_config.max_model_len
+            except Exception as e:
+                logger.warning(f"Could not retrieve max_model_len from engine: {e}")
+                self._max_model_len = None
+
+        logger.info(f"vLLM async engine loaded: {model_name} (max_model_len={self._max_model_len})")
+
+    @property
+    def max_model_len(self) -> Optional[int]:
+        """Return the maximum model sequence length."""
+        return self._max_model_len
 
     def _run_event_loop(self):
         """Run the event loop in a background thread."""

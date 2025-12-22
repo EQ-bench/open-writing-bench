@@ -195,6 +195,9 @@ class LlamaCppServerBackend(InferenceBackend):
         self.startup_timeout = startup_timeout
         self.health_check_interval = health_check_interval
 
+        # Store n_ctx as max_model_len for token budget allocation
+        self._max_model_len = n_ctx
+
         # Store command-building parameters for port retry
         self._cmd_params = {
             "model_name": model_name,
@@ -430,6 +433,11 @@ class LlamaCppServerBackend(InferenceBackend):
         self._wait_for_ready()
 
         logger.info(f"llama-server ready at {self.base_url}")
+
+    @property
+    def max_model_len(self) -> int:
+        """Return the maximum model sequence length (n_ctx)."""
+        return self._max_model_len
 
     def _wait_for_ready(self):
         """Wait for the server to become ready, with health checks."""

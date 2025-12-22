@@ -117,7 +117,15 @@ class LlamaCppLocalBackend(InferenceBackend):
 
         self._llm = Llama(**model_kwargs)
 
-        logger.info(f"llama.cpp model loaded: {model_name}")
+        # Store n_ctx as max_model_len for token budget allocation
+        self._max_model_len = n_ctx
+
+        logger.info(f"llama.cpp model loaded: {model_name} (max_model_len={self._max_model_len})")
+
+    @property
+    def max_model_len(self) -> int:
+        """Return the maximum model sequence length (n_ctx)."""
+        return self._max_model_len
 
     def _build_generate_kwargs(self, **kwargs) -> dict[str, Any]:
         """Build kwargs for llama.cpp generate call."""

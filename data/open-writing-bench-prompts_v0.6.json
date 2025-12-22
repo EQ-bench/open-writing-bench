@@ -1,0 +1,173 @@
+{
+  "4": {
+    "category": "Magical realism",
+    "prompt": "My boyfriend has a knack for finding lost things. Keys, wallets, missing persons."
+  },
+  "5": {
+    "category": "Southern Gothic",
+    "prompt": "The Beaumont house has been sinking into the swamp for sixty years. Grandmother refuses to leave. She says the house still has business with her."
+  },
+  "7": {
+    "category": "Hard sci-fi",
+    "prompt": "The airlock hisses. Commander Torres checks the seal for the third time, her breath fogging the visor. Beyond the glass, the asteroid's surface glitters with ice that shouldn't exist this close to the sun."
+  },
+  "9": {
+    "category": "Cyberpunk",
+    "prompt": "Kira's retinal display flickers—low battery, twelve percent. I wanted it all, she laughs bitterly, to herself. The whole 50k cred bounty of hopes and dreams. Things were not looking so hot."
+  },
+  "11": {
+    "category": "Epic fantasy",
+    "prompt": "The dying king's last command was to find the girl with fire in her blood."
+  },
+  "12": {
+    "category": "Dark fantasy",
+    "prompt": "The ritual requires a willing sacrifice. The king's daughter steps forward before anyone can stop her. She's smiling. She's been planning this for years."
+  },
+  "13": {
+    "category": "Folklore fantasy",
+    "prompt": "A young monk hears singing from the forest that matches the choir’s chant note-for-note, and the next morning he finds tiny hoofprints circling the cemetary."
+  },
+  "14": {
+    "category": "Alternate history",
+    "prompt": "It's 112 CE. The Egyptian empire was never annexed. Now, the flourishing Roman empire meets a challenge to its south. Nefertari the Deathless demands an audience. Young Marcellus is unprepared."
+  },
+
+
+  "18": {
+    "category": "Folk horror",
+    "prompt": "Every generation, our village sends one child to live with the woman in the woods for three days. They come back different. This year, she asked for me."
+  },
+  "23": {
+    "category": "Techno-thriller",
+    "prompt": "Someone's hacked the power grid in six countries simultaneously. They're not asking for money."
+  },
+  "28": {
+    "category": "Amateur sleuth",
+    "prompt": "Jenna's shift at the movie theater ends at midnight. The last customer left a wallet in screen four. No ID, just a few crumpled receipts and a faded photograph of a young man in a nazi uniform."
+  },
+  "29": {
+    "category": "Contemporary romance",
+    "prompt": "She's his emergency contact -- has been since college. She doesn't know why he never updated it."
+  },
+
+  "35": {
+    "category": "Friends to lovers",
+    "prompt": "We've been roommates for four years. Last month he kissed me at midnight on New Year's. I'm watching him working the coffee machine, tensed, refusing to look at me."
+  },
+  "37": {
+    "category": "Exploration / expedition",
+    "prompt": "The last expedition to the Mariana Deep sent back three words before going silent: \"It's not empty.\" That was six months ago. We're going back."
+  },
+  "38": {
+    "category": "Survival",
+    "prompt": "You wake up in the shade of your combi. Death Valley. You remember snippets of last night's journey: the intention-setting, downing the mushrooms. Beyond that... blank. But that's something to puzzle out later, because right now the van won't start."
+  },
+  "40": {
+    "category": "Cozy horror",
+    "prompt": "The population of our small town is mutating. Into... all manner of freaks. Some are horrific. Some, honestly, are improvements on the originals."
+  },
+  "42": {
+    "category": "Science fantasy",
+    "prompt": "The space station orbits a dead god. Engineers maintain the divine corpse. Priests interpret its dreams."
+  },
+  "43": {
+    "category": "Noir romance",
+    "prompt": "She was trouble the moment she lit her cigarette with my lighter without asking. I should have walked away. Instead, I asked her name."
+  },
+  "45": {
+    "category": "Grimdark",
+    "prompt": "Pigshit, is what they called him. It was something of a grudging honorific, since it conveyed a willingness to go to foul places and do what needed to be done."
+  },
+  "46": {
+    "category": "Hopepunk",
+    "prompt": "It's been three years since the collapse. Now the settlements are reaching out: signal fires, carrier pigeons, makeshift gliders held together with wire and a prayer."
+  },
+
+  "51": {
+    "category": "Epistolary",
+    "prompt": "A prisoner, in desperate isolation, writes a note on a scrap of paper, folds it into an airplane, and launches it through the barred window high above his head. A week later, a paper aeroplane returns. The correspondence continues for five years."
+  },
+  "52": {
+    "category": "Stream of consciousness",
+    "prompt": "First day on the front lines. Ukraine. You're tasked with clearing a section of recently contested forest. The sunlight comes sideways through the leaves, eerily beautiful. It's quiet."
+  },
+  "54": {
+    "category": "Character studies",
+    "prompt": "Everyone in town has an opinion about Mrs. Chen. None of them know why she moved here, why she never gets mail, or why she tends the grave of a child that isn't hers. You've decided it's your mission to make friends with Mrs. Chen, and to find out."
+  },
+  "55": {
+    "category": "\"What if\" scenarios",
+    "prompt": "What if your self-assessments are catastrophically wrong—everything you're confident you're good at is actually your worst quality, and everything you think you suck at are your superpowers?"
+  },
+
+  "58": {
+    "category": "Modern AU",
+    "prompt": "The legendary warrior-king and the sorcerer who nearly destroyed him, reborn in the present day. He runs a hardware store. She just moved in next door. Neither remembers—yet."
+  },
+  "59": {
+    "category": "Crime drama",
+    "prompt": "She showed up at his door at 3 AM, soaking wet, shivering. He just hoped nobody had seen her come here. Seen her with him. Things in the Ozarks were about to get complicated."
+  },
+  "60": {
+    "category": "Slow burn (trope)",
+    "prompt": "Three years of late-night study sessions. Three years of almost. Tonight, the library closes and neither of them moves to leave."
+  },
+  "66": {
+    "category": "Reincarnation / regression",
+    "prompt": "I've lived this life before. Every time I die, I wake up at sixteen again. But each loop, something is slightly worse—a friend missing, a building that was never built, a war that started earlier. I'm running out of good timelines."
+  },
+
+  "70": {
+    "category": "Villain POV",
+    "prompt": "The hero's sword stops an inch from my throat. He's waiting for me to beg. Beg, then. Give him what he needs. I smile instead. I've already won—he just doesn't know it yet."
+  },
+  "71": {
+    "category": "Afrofuturism",
+    "prompt": "The orbital stations above Lagos run on ancestral code—algorithms derived from Ifá divination, refined over centuries. When the system predicts a catastrophe with no solution, they send for a babalawo. That's me."
+  },
+  "74": {
+    "category": "Queer speculative fiction",
+    "prompt": "In this world, you can see the red thread of fate connecting soulmates. Mine splits in two."
+  },
+  "76": {
+    "category": "Philip K. Dick",
+    "prompt": "The medication helps me tell what's real. Last week I ran out."
+  },
+  "80": {
+    "category": "Stephen King",
+    "prompt": "The town of Castle Mills has a lottery every spring. Everyone participates. It's been this way since anyone can remember; but nobody talks about what the prize is."
+  },
+
+  "83": {
+    "category": "J.K. Rowling",
+    "prompt": "The letter arrived on my fortieth birthday—thirty years late. The Ministry has questions about why I was never enrolled. So do I."
+  },
+
+  "88": {
+    "category": "Subversive anti-romance",
+    "prompt": "Everyone warned me about him. Cold, ruthless, incapable of love. They were right."
+  },
+
+
+  "93": {
+    "category": "Isekai noir",
+    "prompt": "I died in Chicago and woke up in a city of elves, dwarves, and back-alley magic dealers. Same job, different world. Someone still needs to find the missing girl."
+  },
+  "94": {
+    "category": "Dialogue-only",
+    "prompt": "Two strangers share a hospital waiting room for twelve hours—one waiting for a birth, one for a death."
+  },
+  "96": {
+    "category": "Gig economy",
+    "prompt": "It's 1692. You're skint. You moonlight for a rideshare service to make ends meet. The contract board reads: Clocktower, midnight, solo job."
+  },
+
+  "99": {
+    "category": "Forbidden romance",
+    "prompt": "A widow begins an affair with her late husband's brother -- who confesses he's the reason the husband is dead."
+  },
+  "100": {
+    "category": "Amblin-style adventure",
+    "prompt": "Something crashed out by Sedgwick farm last night. Tommy saw it through his telescope. As soon as school is out, we are enacting recon mission phase 1."
+  }
+}

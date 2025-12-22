@@ -70,6 +70,11 @@ class InferenceBackendClient(LLMClient):
         super().__init__(model_name, **kwargs)
         self._backend = backend
 
+    @property
+    def max_model_len(self) -> Optional[int]:
+        """Return the maximum model sequence length, if available from backend."""
+        return getattr(self._backend, 'max_model_len', None)
+
     def generate(self, prompt: str, temperature: float, max_tokens: int, **kwargs) -> str:
         """Generate text using the underlying backend."""
         result = self._backend.generate(

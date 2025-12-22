@@ -275,6 +275,9 @@ class VLLMServerBackend(InferenceBackend):
             tensor_parallel_size = _get_gpu_count()
             logger.info(f"Auto-detected {tensor_parallel_size} GPU(s) for tensor parallelism")
 
+        # Store max_model_len for token budget allocation
+        self._max_model_len = max_model_len
+
         # Store parameters for command building
         self._cmd_params = {
             "model_name": model_name,
@@ -682,6 +685,11 @@ class VLLMServerBackend(InferenceBackend):
         self._wait_for_ready()
 
         logger.info(f"vLLM server ready at {self.base_url}")
+
+    @property
+    def max_model_len(self) -> Optional[int]:
+        """Return the maximum model sequence length."""
+        return self._max_model_len
 
     def _wait_for_ready(self):
         """Wait for the server to become ready via health check."""

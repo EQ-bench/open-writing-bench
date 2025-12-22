@@ -28,6 +28,44 @@ from core.scoring import parse_judge_scores_creative
 # Multi-turn configuration
 DEFAULT_NUM_CHAPTERS = 3
 
+# Token budget allocation for multi-turn generation
+# These are percentages of the total model context budget
+PLANNING_TOKEN_BUDGET_PERCENT = 0.34  # 34% for planning step
+CHAPTER_TOKEN_BUDGET_PERCENT = 0.22   # 22% for each chapter
+
+# Default max_tokens when no budget constraint is provided
+DEFAULT_MAX_TOKENS = 16000
+
+
+def compute_max_tokens_for_turn(
+    turn_type: str,
+    max_model_len: Optional[int],
+) -> int:
+    """
+    Compute the max_tokens budget for a specific turn based on model context length.
+
+    The allocation strategy is:
+    - Planning step: 34% of total budget
+    - Each chapter: 22% of total budget
+
+    Args:
+        turn_type: Either "planning" or "chapter"
+        max_model_len: The model's maximum context length (None means no constraint)
+
+    Returns:
+        max_tokens value for the turn
+    """
+    if max_model_len is None:
+        return DEFAULT_MAX_TOKENS
+
+    if turn_type == "planning":
+        budget = int(max_model_len * PLANNING_TOKEN_BUDGET_PERCENT)
+    else:
+        budget = int(max_model_len * CHAPTER_TOKEN_BUDGET_PERCENT)
+
+    # Ensure a reasonable minimum
+    return max(budget, 1000)
+
 
 class CreativeWritingTask:
     """
@@ -216,6 +254,11 @@ class CreativeWritingTask:
             )
             db.update_task(self.db_task.id, {"model_responses": model_responses})
 
+        # Get max_model_len from client if available (for token budget allocation)
+        max_model_len = getattr(test_model_client, 'max_model_len', None)
+        if max_model_len:
+            logging.info(f"Task {self.db_task.id}: Using max_model_len={max_model_len} for token budget allocation")
+
         # Build message history and generate each turn
         for turn_idx, turn in enumerate(model_responses):
             if turn["status"] == "generated":
@@ -238,6 +281,9 @@ class CreativeWritingTask:
             # Debug: print the prompt being sent
             # print(f"\n{'='*60}\nTask {self.db_task.id} Turn {turn_idx} - Prompt:\n{prompt}\n{'='*60}\n")
 
+            # Compute max_tokens based on model budget allocation
+            max_tokens = compute_max_tokens_for_turn(turn["turn_type"], max_model_len)
+
             # Generate with retries
             success = False
             for attempt in range(1, max_retries + 1):
@@ -245,7 +291,7 @@ class CreativeWritingTask:
                     response = test_model_client.generate(
                         prompt=prompt,
                         temperature=0.7,
-                        max_tokens=16000 if turn["turn_type"] == "planning" else 16000,
+                        max_tokens=max_tokens,
                         min_p=0.1
                     )
 
