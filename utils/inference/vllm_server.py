@@ -276,7 +276,13 @@ class VLLMServerBackend(InferenceBackend):
             logger.info(f"Auto-detected {tensor_parallel_size} GPU(s) for tensor parallelism")
 
         # Store max_model_len for token budget allocation
+        # Check structured args for --max-model-len if not provided directly
         self._max_model_len = max_model_len
+        if self._max_model_len is None and self._structured_args:
+            for arg_spec in self._structured_args:
+                if arg_spec.get("arg") == "--max-model-len" and arg_spec.get("value") is not None:
+                    self._max_model_len = int(arg_spec["value"])
+                    break
 
         # Store parameters for command building
         self._cmd_params = {
