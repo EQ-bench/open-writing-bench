@@ -64,7 +64,7 @@ def parse_judge_scores_creative(judge_model_response: str) -> Dict[str, float]:
             score = float(match.group(2))
             # Add check to ensure score <= 20 and metric name looks valid
             # (not a sentence fragment from analysis)
-            if score <= SCORE_RANGE_MAX and len(metric_name) < 100:
+            if SCORE_RANGE_MIN <= score <= SCORE_RANGE_MAX and len(metric_name) < 100:
                 scores[metric_name] = score
 
     return scores

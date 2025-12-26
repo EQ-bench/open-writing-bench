@@ -378,18 +378,22 @@ def cleanup_after_job(config: SchedulerConfig):
 
     if config.clear_hf_cache:
         logger.info("Clearing old HuggingFace cache directories...")
-        hf_cache_root = Path("/workspace/mounted/vllm-sandbox/hf")
-        if hf_cache_root.exists():
-            cutoff_time = time.time() - (4 * 60 * 60)  # 4 hours ago
-            for subdir in hf_cache_root.iterdir():
-                if subdir.is_dir():
-                    try:
-                        dir_mtime = subdir.stat().st_mtime
-                        if dir_mtime < cutoff_time:
-                            shutil.rmtree(subdir)
-                            logger.info(f"Cleared old cache dir: {subdir}")
-                    except Exception as e:
-                        logger.warning(f"Failed to clear {subdir}: {e}")
+        hf_cache_dirs = [
+            Path("/workspace/mounted/sam/hf/hub"),
+            Path("/workspace/mounted/sam/hf/xet"),
+        ]
+        cutoff_time = time.time() - (4 * 60 * 60)  # 4 hours ago
+        for hf_cache_root in hf_cache_dirs:
+            if hf_cache_root.exists():
+                for subdir in hf_cache_root.iterdir():
+                    if subdir.is_dir():
+                        try:
+                            dir_mtime = subdir.stat().st_mtime
+                            if dir_mtime < cutoff_time:
+                                shutil.rmtree(subdir)
+                                logger.info(f"Cleared old cache dir: {subdir}")
+                        except Exception as e:
+                            logger.warning(f"Failed to clear {subdir}: {e}")
 
 
 def load_submissions_for_queue_ordering(

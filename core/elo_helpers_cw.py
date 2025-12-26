@@ -15,10 +15,16 @@ def should_ignore_prompt_cw(prompt_id: str) -> bool:
     base_id = prompt_id.split("_")[0] if "_" in prompt_id else prompt_id
     return base_id in IGNORE_PROMPTS_FOR_ELO
 
+PLUS_COUNT_MIN = 1
+PLUS_COUNT_MAX = 5
+
 def interpret_pairwise_result_cw(result_dict: Optional[Dict[str, str]]) -> Tuple[float, int, int]:
     """
     Return (outcome_for_A, plus_for_A, plus_for_B) in {0,0.5,1}, plus_for_A, plus_for_B as int tallies.
     This is unchanged from original CW elo.py.
+
+    Plus counts are validated to be in range 1-5 per the judging rubric.
+    Invalid plus counts are clamped to this range.
     """
     if not result_dict:
         return 0.5, 0, 0
@@ -26,28 +32,31 @@ def interpret_pairwise_result_cw(result_dict: Optional[Dict[str, str]]) -> Tuple
     a_score = 0
     b_score = 0
     for key, val in result_dict.items():
-        if key in ["improvement_suggestions", "theory_of_mind", "_item_order_idx"]: # Added _item_order_idx
+        if key in ["improvement_suggestions", "theory_of_mind", "_item_order_idx", "chain_of_thought_reasoning"]:
             continue
         # "A0493" => means model A is better for that dimension
         if "A0493" in val: # Model A preferred
             plus_count = val.count('+')
-            # Original logic had subtractions for certain keys, which seems complex for simple plus counts.
-            # Re-evaluating: The original code adds to a_score if A0493, and subtracts from b_score for specific keys.
-            # This means for "avoids_poetic_overload", if A is better (A0493), A gets points, B loses points.
-            # If B is better (A0488), B gets points, A loses points.
-            # This double-counts the effect.
-            # Let's simplify to: A gets points if A0493, B gets points if A0488.
-            # The "punish these" logic seems to be an attempt to invert negative criteria directly in score.
-            # For ELO, simpler plus counts are usually better. The "invert_if_negative" handles rubric scores.
-            # Sticking to original interpretation for now:
-            if plus_count > 0:
-                a_score += plus_count
+            # Validate plus count is in expected range (1-5)
+            if plus_count < PLUS_COUNT_MIN:
+                logging.warning(f"Invalid plus count {plus_count} for key '{key}' (expected {PLUS_COUNT_MIN}-{PLUS_COUNT_MAX}), clamping to {PLUS_COUNT_MIN}")
+                plus_count = PLUS_COUNT_MIN
+            elif plus_count > PLUS_COUNT_MAX:
+                logging.warning(f"Invalid plus count {plus_count} for key '{key}' (expected {PLUS_COUNT_MIN}-{PLUS_COUNT_MAX}), clamping to {PLUS_COUNT_MAX}")
+                plus_count = PLUS_COUNT_MAX
+            a_score += plus_count
             if key in ["avoids_poetic_overload", "coherence", "avoids_verbosity"]: # Negative criteria
                  b_score -= plus_count # If A is good on negative, B is penalized
         elif "A0488" in val: # Model B preferred
             plus_count = val.count('+')
-            if plus_count > 0:
-                b_score += plus_count
+            # Validate plus count is in expected range (1-5)
+            if plus_count < PLUS_COUNT_MIN:
+                logging.warning(f"Invalid plus count {plus_count} for key '{key}' (expected {PLUS_COUNT_MIN}-{PLUS_COUNT_MAX}), clamping to {PLUS_COUNT_MIN}")
+                plus_count = PLUS_COUNT_MIN
+            elif plus_count > PLUS_COUNT_MAX:
+                logging.warning(f"Invalid plus count {plus_count} for key '{key}' (expected {PLUS_COUNT_MIN}-{PLUS_COUNT_MAX}), clamping to {PLUS_COUNT_MAX}")
+                plus_count = PLUS_COUNT_MAX
+            b_score += plus_count
             if key in ["avoids_poetic_overload", "coherence", "avoids_verbosity"]: # Negative criteria
                  a_score -= plus_count # If B is good on negative, A is penalized
 
