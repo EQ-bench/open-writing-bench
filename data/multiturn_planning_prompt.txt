@@ -1,4 +1,4 @@
-You are planning a {n_chapters}-chapter story, aiming for 1000 words per chapter.
+You are planning a {n_chapters}-chapter short creative writing piece, aiming for 1000 words per chapter.
 
 Category: {category}
 
@@ -21,7 +21,7 @@ Brainstorm ideas for characters, plot, tone, story beats, and pacing over the {n
 
 # Reflection
 
-Reflect on what works and doesn't work in these ideas. The purpose of this reflection is to narrow in on what you think will work best to make a piece that is: a) compelling, and b) fits the prompt requirements.
+Reflect on what works and doesn't work in these ideas. The purpose of this reflection is to narrow in on what you think will work best to make a piece that is: a) compelling, and b) fits the prompt requirements. Importantly, settle on a writing voice.
 
 # Chapter Plan
 
@@ -33,7 +33,7 @@ Reflect on what works and doesn't work in these ideas. The purpose of this refle
 
 # Character Profiles
 
-For each major character (at least 2-3 characters), provide:
+For each major character, provide:
 
 ## [Character Name]
 - Background: Brief backstory and current situation
