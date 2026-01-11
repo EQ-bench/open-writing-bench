@@ -1,0 +1,6 @@
+Now finish the story with Scene {chapter_number}. Follow your plan closely. Bring the narrative to a satisfying conclusion. Approximately 1000 words.
+
+Remember the format:
+- Character names prefix each perspective shift
+- *Asterisks for narration, actions, and internal thoughts*
+- "Quotes for dialogue"

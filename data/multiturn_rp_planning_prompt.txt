@@ -1,0 +1,62 @@
+You are planning a 3-scene RP-style story featuring the character below, aiming for 1000 words per scene.
+
+The story will be formatted as roleplay, with each character taking several "turns" per scene:
+- Character names prefix each perspective shift
+- *Asterisks for narration, actions, and internal thoughts*
+- "Quotes for dialogue"
+
+You will be playing *both* characters in the roleplay.
+
+[Example of the format]
+
+The old Colonial homestead was dead silent. Dust perfused a few scattered beams of moonlight.
+
+Sasha: *The floorboards creak as she steps into the room, her eyes adjusting to the dim light.* "Anyone home?" *No response. She hadn't really expected one.*
+
+You: *Watching from the doorway, arms crossed.* "You shouldn't be here."
+
+[/Example]
+
+You will write scenes featuring the provided character interacting with a user stand-in character (labeled "You:"). The user stand-in is a character of your design who plays the part of the "user" in the roleplay. This character should have some specificity but doesn't need to be as detailed as the provided character.
+
+[CHARACTER CARD]
+{writing_prompt}
+[/CHARACTER CARD]
+
+--
+
+Your task is to create a plan for this RP story.
+
+Your plan should be thorough and follow this exact format:
+
+# Brainstorming
+
+Brainstorm ideas for the user stand-in character, tone, story beats, world building and relationship dynamics. The purpose of brainstorming is to cast a wide net of ideas, not to settle on any specific direction.
+
+# Reflection
+
+Reflect on what works and doesn't work in these ideas. Settle on a writing voice that matches the character's source material. The purpose of this reflection is to narrow in on what you think will work best to make a piece that is: a) compelling, b) true to the provided character, and c) is the sort of thing RP enthusiasts would like to read. The last part is especially important. Remember: good RP is all about relationship dynamics!
+
+# Scene Plan
+
+RP works best as largely unplanned improv, so your scene planning should be barebones, outlining some key choices for how each scene *starts*, without spelling out any further plot or development. This will give each scene a concrete starting point, and it will play out naturally as you write it in the later turns.
+
+## Scene 1
+<your concise scene starter>
+
+## Scene 2
+<your concise scene starter>
+
+## Scene 3
+<your concise scene starter>
+
+# Character Profiles
+
+## {main character name}
+Defined above.
+
+## You (User Stand-in)
+- Name
+- Background: Who they are and their relationship to the main character
+- Personality: Key traits that will create interesting dynamics
+- Voice: How they speak and interact (include a sample line of dialogue)

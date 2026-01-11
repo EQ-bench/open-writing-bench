@@ -279,6 +279,16 @@ def run_eq_bench_creative(
             # Multi-turn generation: planning + chapters
             # Cannot use batch mode since each turn depends on previous turns
             logging.info(f"Using multi-turn generation with {num_chapters} chapters...")
+
+            # Load RP-specific templates for prompts with "RP" in category
+            data_dir = Path(__file__).parent.parent / "data"
+            rp_templates = {
+                "planning": (data_dir / "multiturn_rp_planning_prompt.txt").read_text(encoding="utf-8"),
+                "first": (data_dir / "multiturn_rp_scene_first.txt").read_text(encoding="utf-8"),
+                "intermediate": (data_dir / "multiturn_rp_scene_intermediate.txt").read_text(encoding="utf-8"),
+                "last": (data_dir / "multiturn_rp_scene_last.txt").read_text(encoding="utf-8"),
+            }
+
             with ThreadPoolExecutor(max_workers=num_threads) as executor:
                 futures = []
                 for task in tasks_to_generate:
@@ -286,6 +296,18 @@ def run_eq_bench_creative(
                     prompt = prompt_obj.get("prompt") or prompt_obj.get("writing_prompt")
                     category = prompt_obj.get("category", "")
                     task_controller = CreativeWritingTask(task)
+
+                    # Use RP templates if category ends with " RP"
+                    is_rp = category.endswith(" RP")
+                    template_kwargs = {}
+                    if is_rp:
+                        template_kwargs = {
+                            "planning_prompt_template": rp_templates["planning"],
+                            "chapter_first_template": rp_templates["first"],
+                            "chapter_intermediate_template": rp_templates["intermediate"],
+                            "chapter_last_template": rp_templates["last"],
+                        }
+
                     futures.append(executor.submit(
                         task_controller.generate_multiturn,
                         test_model_client,
@@ -293,6 +315,7 @@ def run_eq_bench_creative(
                         category=category,
                         num_chapters=num_chapters,
                         progress=progress,
+                        **template_kwargs,
                     ))
                 # Process futures (progress auto-flushes every 15s via maybe_flush)
                 for future in log_progress(list(futures), desc="Generating multi-turn pieces"):

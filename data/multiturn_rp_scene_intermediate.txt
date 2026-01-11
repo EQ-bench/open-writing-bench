@@ -1,0 +1,6 @@
+Now write Scene {chapter_number}. Follow your plan closely. Approximately 1000 words.
+
+Remember the format:
+- Character names prefix each perspective shift
+- *Asterisks for narration, actions, and internal thoughts*
+- "Quotes for dialogue"
