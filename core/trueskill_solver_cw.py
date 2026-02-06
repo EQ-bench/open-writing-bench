@@ -2,6 +2,7 @@
 
 import logging
 import math
+import random
 import trueskill # type: ignore
 from typing import Dict, Any, List, Tuple, Optional, Set, Union
 from collections import defaultdict
@@ -120,7 +121,8 @@ def solve_with_trueskill_cw(
     debug: bool = False,
     use_fixed_initial_ratings: bool = True, # If True, active models start at DEFAULT_ELO
     bin_size_override: Optional[int] = None, # Allows overriding global bin_size
-    return_sigma: bool = False
+    return_sigma: bool = False,
+    num_trials: int = 1
 ) -> Union[Dict[str, float], Tuple[Dict[str, float], Dict[str, float]]]:
     """
     Calculates ratings using TrueSkill for Creative Writing.
@@ -128,6 +130,8 @@ def solve_with_trueskill_cw(
       'fraction_for_test'.
     - They should also have 'test_model_iteration_id' and 'neighbor_model_iteration_id'
       within the 'pair' dict or at the top level of the comparison object for unique grouping.
+    - num_trials: Number of shuffled trials to average over. Each trial shuffles the
+      comparison order with a deterministic seed to eliminate ordering bias.
     """
     current_bin_size = bin_size_override if bin_size_override is not None else TRUESKILL_BIN_SIZE_FOR_WIN_EXPANSION
 
@@ -220,88 +224,111 @@ def solve_with_trueskill_cw(
         f"for {len(active_models)} active models (out of {len(all_models)} total)."
     )
 
-    # --- Setup TrueSkill Environment and Players ---
-    ts_env = trueskill.TrueSkill(mu=DEFAULT_ELO, sigma=TS_SIGMA, beta=TS_BETA,
-                                 tau=TS_TAU, draw_probability=0.0) # draw_probability=0 as we expand draws
+    # --- Multi-trial shuffle averaging ---
+    # TrueSkill updates are sequential and order-dependent. Running multiple trials
+    # with different (deterministic) shuffles and averaging the results eliminates
+    # the bias from any single arbitrary ordering.
+    num_trials = max(1, num_trials)
+    if num_trials > 1:
+        logging.info(f"[TrueSkill-CW] Running {num_trials} shuffled trials to average out ordering bias.")
 
-    ratings: Dict[str, trueskill.Rating] = {}
-    for m_name in all_models:
-        start_mu = DEFAULT_ELO
-        if m_name in active_models and use_fixed_initial_ratings:
-            start_mu = DEFAULT_ELO # Reset active models to default for a fresh solve
-        elif m_name in initial_ratings and not use_fixed_initial_ratings :
-            start_mu = initial_ratings[m_name]
-        elif m_name in initial_ratings and use_fixed_initial_ratings and m_name not in active_models:
-            # Model is not active in current comparisons but has a prior rating
-            start_mu = initial_ratings[m_name]
+    all_trial_mu: List[Dict[str, float]] = []
+    all_trial_sigma: List[Dict[str, float]] = []
 
-        ratings[m_name] = ts_env.Rating(mu=start_mu, sigma=TS_SIGMA) # Use global TS_SIGMA for initial uncertainty
+    for trial_idx in range(num_trials):
+        # Shuffle comparisons with a deterministic seed per trial
+        trial_comps = list(processed_paired_comparisons)
+        if num_trials > 1:
+            random.Random(trial_idx * 7 + 42).shuffle(trial_comps)
 
+        # --- Setup TrueSkill Environment and Players (fresh per trial) ---
+        ts_env = trueskill.TrueSkill(mu=DEFAULT_ELO, sigma=TS_SIGMA, beta=TS_BETA,
+                                     tau=TS_TAU, draw_probability=0.0)
 
-    # --- Apply TrueSkill updates ---
-    if not EXPAND_MARGINS_TO_EXTRA_WINS:
-        # Method: Adjust beta based on margin (more complex)
-        base_beta = ts_env.beta
-        env_cache: Dict[float, trueskill.TrueSkill] = {}
-        logging.info(f"[TrueSkill-CW] Applying margin-weighted updates by adjusting beta (GAMMA={TS_GAMMA_FOR_BETA_ADJUSTMENT}, base_beta={base_beta:.2f}). Bin size for win/loss: {current_bin_size}")
+        ratings: Dict[str, trueskill.Rating] = {}
+        for m_name in all_models:
+            start_mu = DEFAULT_ELO
+            if m_name in active_models and use_fixed_initial_ratings:
+                start_mu = DEFAULT_ELO
+            elif m_name in initial_ratings and not use_fixed_initial_ratings:
+                start_mu = initial_ratings[m_name]
+            elif m_name in initial_ratings and use_fixed_initial_ratings and m_name not in active_models:
+                start_mu = initial_ratings[m_name]
 
-        for comp in processed_paired_comparisons:
-            frac = comp["fraction_for_test"]
-            m1 = comp["pair"]["test_model"]
-            m2 = comp["pair"]["neighbor_model"]
+            ratings[m_name] = ts_env.Rating(mu=start_mu, sigma=TS_SIGMA)
 
-            if m1 not in ratings or m2 not in ratings or m1 == m2:
-                continue
+        # --- Apply TrueSkill updates ---
+        if not EXPAND_MARGINS_TO_EXTRA_WINS:
+            base_beta = ts_env.beta
+            env_cache: Dict[float, trueskill.TrueSkill] = {}
+            if trial_idx == 0:
+                logging.info(f"[TrueSkill-CW] Applying margin-weighted updates by adjusting beta (GAMMA={TS_GAMMA_FOR_BETA_ADJUSTMENT}, base_beta={base_beta:.2f}). Bin size for win/loss: {current_bin_size}")
 
-            margin_signal = abs(frac - 0.5) * 2.0  # m in [0,1]
-            k_eff_matches = 1.0 + TS_GAMMA_FOR_BETA_ADJUSTMENT * margin_signal
-            beta_eff = base_beta / math.sqrt(k_eff_matches)
+            for comp in trial_comps:
+                frac = comp["fraction_for_test"]
+                m1 = comp["pair"]["test_model"]
+                m2 = comp["pair"]["neighbor_model"]
 
-            current_ts_env = env_cache.get(beta_eff)
-            if current_ts_env is None:
-                current_ts_env = trueskill.TrueSkill(mu=DEFAULT_ELO, sigma=TS_SIGMA, beta=beta_eff, tau=TS_TAU, draw_probability=0.0)
-                env_cache[beta_eff] = current_ts_env
+                if m1 not in ratings or m2 not in ratings or m1 == m2:
+                    continue
 
-            # Use simple win/loss based on frac for this method, beta carries margin
-            if frac > 0.5 + 1e-9: # m1 wins
-                ratings[m1], ratings[m2] = current_ts_env.rate_1vs1(ratings[m1], ratings[m2])
-            elif frac < 0.5 - 1e-9: # m2 wins
-                ratings[m2], ratings[m1] = current_ts_env.rate_1vs1(ratings[m2], ratings[m1])
-            else: # Draw
-                ratings[m1], ratings[m2] = current_ts_env.rate_1vs1(ratings[m1], ratings[m2], drawn=True)
+                margin_signal = abs(frac - 0.5) * 2.0
+                k_eff_matches = 1.0 + TS_GAMMA_FOR_BETA_ADJUSTMENT * margin_signal
+                beta_eff = base_beta / math.sqrt(k_eff_matches)
 
-    else: # EXPAND_MARGINS_TO_EXTRA_WINS = True (simpler, preferred)
-        logging.info(f"[TrueSkill-CW] Applying updates by expanding margins to pseudo-wins (bin_size={current_bin_size})")
-        for comp in processed_paired_comparisons:
-            frac = comp["fraction_for_test"]
-            m1 = comp["pair"]["test_model"]
-            m2 = comp["pair"]["neighbor_model"]
+                current_ts_env = env_cache.get(beta_eff)
+                if current_ts_env is None:
+                    current_ts_env = trueskill.TrueSkill(mu=DEFAULT_ELO, sigma=TS_SIGMA, beta=beta_eff, tau=TS_TAU, draw_probability=0.0)
+                    env_cache[beta_eff] = current_ts_env
 
-            if m1 not in ratings or m2 not in ratings or m1 == m2:
-                continue
-
-            wins_m1, wins_m2 = bin_fraction_trueskill(frac, current_bin_size)
-
-            try:
-                if wins_m1 == 1 and wins_m2 == 1: # Interpreted as a draw from bin_fraction
-                    r_m1, r_m2 = ts_env.rate_1vs1(ratings[m1], ratings[m2], drawn=True)
-                    ratings[m1], ratings[m2] = r_m1, r_m2
+                if frac > 0.5 + 1e-9:
+                    ratings[m1], ratings[m2] = current_ts_env.rate_1vs1(ratings[m1], ratings[m2])
+                elif frac < 0.5 - 1e-9:
+                    ratings[m2], ratings[m1] = current_ts_env.rate_1vs1(ratings[m2], ratings[m1])
                 else:
-                    for _ in range(wins_m1):
-                        r_m1, r_m2 = ts_env.rate_1vs1(ratings[m1], ratings[m2])
+                    ratings[m1], ratings[m2] = current_ts_env.rate_1vs1(ratings[m1], ratings[m2], drawn=True)
+
+        else:
+            if trial_idx == 0:
+                logging.info(f"[TrueSkill-CW] Applying updates by expanding margins to pseudo-wins (bin_size={current_bin_size})")
+            for comp in trial_comps:
+                frac = comp["fraction_for_test"]
+                m1 = comp["pair"]["test_model"]
+                m2 = comp["pair"]["neighbor_model"]
+
+                if m1 not in ratings or m2 not in ratings or m1 == m2:
+                    continue
+
+                wins_m1, wins_m2 = bin_fraction_trueskill(frac, current_bin_size)
+
+                try:
+                    if wins_m1 == 1 and wins_m2 == 1:
+                        r_m1, r_m2 = ts_env.rate_1vs1(ratings[m1], ratings[m2], drawn=True)
                         ratings[m1], ratings[m2] = r_m1, r_m2
-                    for _ in range(wins_m2):
-                        r_m2, r_m1 = ts_env.rate_1vs1(ratings[m2], ratings[m1])
-                        ratings[m1], ratings[m2] = r_m1, r_m2 # Assign back correctly
-            except ValueError as e:
-                logging.warning(f"[TrueSkill-CW] Update failed between {m1} and {m2}: {e}. Frac: {frac}, Wins: ({wins_m1},{wins_m2}). Skipping.")
-            except Exception as e:
-                logging.error(f"[TrueSkill-CW] Unexpected error during update ({m1} vs {m2}): {e}", exc_info=True)
+                    else:
+                        for _ in range(wins_m1):
+                            r_m1, r_m2 = ts_env.rate_1vs1(ratings[m1], ratings[m2])
+                            ratings[m1], ratings[m2] = r_m1, r_m2
+                        for _ in range(wins_m2):
+                            r_m2, r_m1 = ts_env.rate_1vs1(ratings[m2], ratings[m1])
+                            ratings[m1], ratings[m2] = r_m1, r_m2
+                except ValueError as e:
+                    logging.warning(f"[TrueSkill-CW] Update failed between {m1} and {m2}: {e}. Frac: {frac}, Wins: ({wins_m1},{wins_m2}). Skipping.")
+                except Exception as e:
+                    logging.error(f"[TrueSkill-CW] Unexpected error during update ({m1} vs {m2}): {e}", exc_info=True)
 
+        # Collect this trial's results
+        all_trial_mu.append({m_name: r.mu for m_name, r in ratings.items()})
+        all_trial_sigma.append({m_name: r.sigma for m_name, r in ratings.items()})
 
-    # --- Collect final ratings ---
-    final_mu_map: Dict[str, float] = {m_name: r.mu for m_name, r in ratings.items()}
-    final_sigma_map: Dict[str, float] = {m_name: r.sigma for m_name, r in ratings.items()}
+    # --- Average across trials ---
+    all_model_names = list(all_trial_mu[0].keys())
+    final_mu_map: Dict[str, float] = {
+        m: sum(t[m] for t in all_trial_mu) / num_trials for m in all_model_names
+    }
+    final_sigma_map: Dict[str, float] = {
+        m: sum(t[m] for t in all_trial_sigma) / num_trials for m in all_model_names
+    }
 
     if debug:
         for m_name in sorted(final_mu_map.keys(), key=lambda k: final_mu_map[k], reverse=True):

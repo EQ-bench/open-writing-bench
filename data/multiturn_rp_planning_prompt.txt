@@ -15,9 +15,15 @@ Sasha: *The floorboards creak as she steps into the room, her eyes adjusting to 
 
 You: *Watching from the doorway, arms crossed.* "You shouldn't be here."
 
+Sasha: ...
+
+[etc]
+
 [/Example]
 
-You will write scenes featuring the provided character interacting with a user stand-in character (labeled "You:"). The user stand-in is a character of your design who plays the part of the "user" in the roleplay. This character should have some specificity but doesn't need to be as detailed as the provided character.
+Important: The user-stand-in character should always be labeled "You", not their character name.
+
+You will write scenes featuring the provided character interacting with a user stand-in character (labeled "You:"). The user stand-in is a character of your design who plays the part of the "user" in the roleplay. It should *not* be a known canon character; make up someone new that fits in lore. This character should have some specificity but doesn't need to be as detailed as the provided character.
 
 [CHARACTER CARD]
 {writing_prompt}

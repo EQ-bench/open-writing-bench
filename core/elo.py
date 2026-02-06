@@ -1053,11 +1053,12 @@ def run_elo_analysis_creative(
             else:
                 logging.info(f"[ELO-CW] Solving ELO with {len(comps_for_solver)} comparisons for stability check.")
                 interim_mu_map = solve_with_trueskill_cw(
-                    list(all_model_names_in_system), 
+                    list(all_model_names_in_system),
                     comps_for_solver,
-                    initial_ratings=elo_snapshot, 
-                    use_fixed_initial_ratings=True, 
-                    debug=False 
+                    initial_ratings=elo_snapshot,
+                    use_fixed_initial_ratings=True,
+                    debug=False,
+                    num_trials=3
                 )
                 
                 new_elo_snapshot = elo_snapshot.copy()
@@ -1146,20 +1147,22 @@ def run_elo_analysis_creative(
             models_for_final_solve,
             final_comps_for_solver,
             initial_ratings=initial_ratings_final_solve,
-            use_fixed_initial_ratings=True, 
-            bin_size_override=TRUESKILL_BIN_SIZE_FOR_WIN_EXPANSION, 
+            use_fixed_initial_ratings=True,
+            bin_size_override=TRUESKILL_BIN_SIZE_FOR_WIN_EXPANSION,
             return_sigma=True,
-            debug=True 
+            debug=True,
+            num_trials=10
         )
 
         _ , final_sigma_map_for_ci_bin = solve_with_trueskill_cw(
             models_for_final_solve,
             final_comps_for_solver,
-            initial_ratings=final_mu_map, 
-            use_fixed_initial_ratings=True, 
-            bin_size_override=TRUESKILL_BIN_SIZE_FOR_CI_CALCULATION, 
+            initial_ratings=final_mu_map,
+            use_fixed_initial_ratings=True,
+            bin_size_override=TRUESKILL_BIN_SIZE_FOR_CI_CALCULATION,
             return_sigma=True,
-            debug=False
+            debug=False,
+            num_trials=10
         )
         
         normalized_mu_map = normalize_elo_scores_cw(final_mu_map) 
