@@ -28,7 +28,6 @@ from .elo_config_cw import (
     MAX_STAGE_LOOPS,
     TRUESKILL_BIN_SIZE_FOR_WIN_EXPANSION,
     TRUESKILL_BIN_SIZE_FOR_CI_CALCULATION,
-    RANK_WINDOW,
     CW_ANCHOR_MODELS,
     # Constants from original CW elo.py that are now in elo_config_cw
     LENGTH_TRUNCATION_CHARS_PER_CHAPTER,
@@ -1045,7 +1044,7 @@ def run_elo_analysis_creative(
 
             # --- Re-solve ELO ratings ---
             # Use current rank window setting from config for interim solves
-            comps_for_solver = get_solver_comparisons_cw(all_comparisons_global, elo_snapshot, RANK_WINDOW)
+            comps_for_solver = get_solver_comparisons_cw(all_comparisons_global)
             
             if not comps_for_solver:
                 logging.warning("[ELO-CW] No valid comparisons for interim ELO solve. Stability not checked.")
@@ -1128,7 +1127,7 @@ def run_elo_analysis_creative(
         return {}, elo_error_message, elo_judging_cost
 
 
-    final_comps_for_solver = get_solver_comparisons_cw(all_comparisons_global, elo_snapshot, RANK_WINDOW)
+    final_comps_for_solver = get_solver_comparisons_cw(all_comparisons_global)
 
     if not final_comps_for_solver:
         logging.warning("[ELO-CW] No valid comparisons available for final ELO solve after filtering.")
